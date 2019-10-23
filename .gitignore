@@ -242,5 +242,5 @@ TSWLatexianTemp*
 *.spl
 
 #ignoring data folder
-script/data
+#script/data
 
