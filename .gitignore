@@ -242,5 +242,9 @@ TSWLatexianTemp*
 *.spl
 
 #ignoring data folder
-script/data
+#script/data
+
+#ignoring_file
+Grenoble.csv
+Grenoble_raw.csv
 
