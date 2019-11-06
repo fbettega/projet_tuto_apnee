@@ -1,0 +1,130 @@
+---
+title: "Pretraitement"
+output: pdf_document
+---
+
+```{r}
+library("tidyverse")
+library("lubridate")
+```
+fun 
+```{r}
+'%!in%' <- function(x,y)!('%in%'(x,y))
+```
+
+import
+```{r}
+carac_indiv_all <- read.csv("data/Grenoble.csv",sep = ",",dec = ".",header = TRUE)
+
+
+
+carac_indiv <- carac_indiv_all%>% select(1:which(colnames(carac_indiv_all)=="Abdomen_circumference__cm_" ),UnID) # obbbligation de correction a la main autres variables doivent etre vérifier cf variables soit disant calculé
+PA <- read.csv("data/Grenoble_raw.csv")
+
+
+
+
+```
+
+Uniquement patient grenoblois
+```{r}
+nrow(carac_indiv)
+```
+
+# Pression Artériel
+
+```{r}
+summary(PA)
+```
+il semble qu'on peut retirer valid et visit toujours = 1 à confirmer avec bailly
+
+
+PA : SBP et DBP = 0 dc ??? bug ???
+
+MonDay ??? min -364 ???
+
+```{r}
+PA <- PA %>% select(-VISIT,-Valid)
+```
+
+
+## date et temps
+
+
+```{r}
+PA$Time <- dmy_hms(as.character(PA$Time))
+
+```
+
+
+## carac indiv
+```{r}
+mesure_soit_disant_calc <- colnames(carac_indiv_all)[colnames(carac_indiv_all)%!in%(colnames(carac_indiv))]
+```
+problème "UnID" dans les variables soit disant calculé elles doivent donc etre toutes etre vérifier a la main .... + confirme avec bailly
+
+```{r}
+summary(carac_indiv)
+```
+
+
+
+
+```{r}
+carac_indiv %>% select_if(is.factor)
+```
+
+
+### num en facteur 
+
+```{r}
+carac_indiv %>% select_if(is.factor)%>%colnames
+```
+
+smoking__behavior__consumption__
+Arterial_hypertension_duration_r
+Abdomen_circumference__cm_
+
+```{r}
+apply(carac_indiv%>%select(Smoking_behavior__consumption__,Arterial_hypertension_duration_r,Abdomen_circumference__cm_), 2,function(x) str_subset(x,"^\\D|\\D$"))
+
+apply(carac_indiv%>%select(Smoking_behavior__consumption__,Arterial_hypertension_duration_r,Abdomen_circumference__cm_), 2,function(x) str_which(x,"^\\D|\\D$"))
+
+
+```
+grosse problématique nécessittant une discussion approfondie
+
+
+### texte a decouper
+Details_of___history_of_hyperten 
+au vue de la structure apparente a convertir en 3 booléens a confirmer ...
+
+decoupage du du champs Details_of___history_of_hyperten en 3 booleen.
+```{r}
+Details_of___history_of_hyperten <- apply(data.frame(matrix(data = unlist(str_split(as.character(carac_indiv$Details_of___history_of_hyperten),"/")), ncol = 3,byrow = TRUE, dimnames=list(NULL,c("history of HT","office HT","treatment")))),2,function(x) !str_detect(x,"no"))
+
+carac_indiv <- cbind(carac_indiv,Details_of___history_of_hyperten) %>% select(-Details_of___history_of_hyperten)
+
+```
+
+
+## jointure entre les 2 tables
+
+
+```{r}
+clef_pa <- PA %>% select(UNID)# %>% unique()
+clef_carac_indiv <- carac_indiv %>% select(UnID)#%>% unique()
+anti_join(clef_carac_indiv,clef_pa,by = c("UnID" = "UNID")) # pas de ligne sans equivalent 
+
+
+
+```
+
+### nb de mesure par patients
+```{r}
+nb_mesure <- right_join(clef_carac_indiv,clef_pa,by = c("UnID" = "UNID")) %>% group_by ( UnID ) %>% summarise("nombre de mesure" = n())
+summary(nb_mesure["nombre de mesure"])
+```
+entre 64 et 240 mesure par indiv moyenne de 108 
+
+Q restante sont elles egalement séparé ???
