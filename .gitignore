@@ -249,3 +249,7 @@ Grenoble.csv
 Grenoble_raw.csv
 
 .Rproj.user
+
+script/.Rhistory
+
+script/.RData
