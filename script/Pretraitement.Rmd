@@ -130,3 +130,33 @@ entre 64 et 240 mesure par indiv moyenne de 108
 Q restante sont elles egalement séparé ???
 
 
+graph anglais 
+
+
+```{r}
+test <- PA[PA$UNID=="00abb1bc-7621-4e68-8fe9-cb63838ae9ca",]
+
+
+plot(test$SBP[test$SBP > 0],type = "line",main = "Systolic blood pressure variation",ylab = "Blood pressure",xlab = "mesure")
+plot(test$SBP[test$DBP > 0],type = "line",main = "Diatolyc blood pressure variation",ylab = "Blood pressure",xlab = "mesure")
+```
+
+```{r}
+carac_indiv$Age__years_
+carac_indiv$VAR3
+
+ggplot(carac_indiv, aes(x = carac_indiv$VAR3,fill=carac_indiv$VAR3)) + geom_bar() + ggtitle("Repartition du Sex") +labs(fill = "Sex",x="Sex") 
+
+
+
+
+cut_test <- cut(carac_indiv_all$VAR45, seq(0,max(carac_indiv_all$VAR45),10))
+df_test <- data.frame(cut_test)
+
+ggplot(df_test, aes(x = df_test$cut_test,fill=df_test$cut_test)) + geom_bar() + ggtitle(" Apnea–Hypopnea Index")+labs(fill = "AHI score",x="Number of Apnea") +
+  geom_vline(xintercept = 2, linetype="dotted", 
+   color = "blue", size=1.5) +  
+  geom_vline(xintercept = 3, linetype="dotted", 
+                color = "red", size=1.5) 
+```
+
