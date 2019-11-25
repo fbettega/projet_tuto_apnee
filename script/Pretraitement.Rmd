@@ -3,7 +3,7 @@ title: "Pretraitement"
 output: pdf_document
 ---
 
-```{r}
+```{r setup, include=FALSE}
 library("tidyverse")
 library("lubridate")
 ```
@@ -39,6 +39,8 @@ summary(PA)
 il semble qu'on peut retirer valid et visit toujours = 1 à confirmer avec bailly
 
 
+
+
 PA : SBP et DBP = 0 dc ??? bug ???
 
 MonDay ??? min -364 ???
@@ -47,6 +49,17 @@ MonDay ??? min -364 ???
 PA <- PA %>% select(-VISIT,-Valid)
 ```
 
+## vérification
+
+```{r}
+
+PA_without_zero <- PA  %>% filter(SBP!=0,DBP!=0)
+
+summary(PA_without_zero)
+  
+```
+
+peut etre des minimum de PA un peu faible
 
 ## date et temps
 
@@ -61,7 +74,9 @@ PA$Time <- dmy_hms(as.character(PA$Time))
 ```{r}
 mesure_soit_disant_calc <- colnames(carac_indiv_all)[colnames(carac_indiv_all)%!in%(colnames(carac_indiv))]
 ```
-problème "UnID" dans les variables soit disant calculé elles doivent donc etre toutes etre vérifier a la main .... + confirme avec bailly
+
+
+Choisir les variables selon leur intéret liste probablement a discuter avec bailly problème peut utile car variables
 
 ```{r}
 summary(carac_indiv)
@@ -86,9 +101,9 @@ Arterial_hypertension_duration_r
 Abdomen_circumference__cm_
 
 ```{r}
-apply(carac_indiv%>%select(Smoking_behavior__consumption__,Arterial_hypertension_duration_r,Abdomen_circumference__cm_), 2,function(x) str_subset(x,"^\\D|\\D$"))
+apply(carac_indiv %>% select(Smoking_behavior__consumption__,Arterial_hypertension_duration_r,Abdomen_circumference__cm_), 2,function(x) str_subset(x,"^\\D|\\D$"))
 
-apply(carac_indiv%>%select(Smoking_behavior__consumption__,Arterial_hypertension_duration_r,Abdomen_circumference__cm_), 2,function(x) str_which(x,"^\\D|\\D$"))
+apply(carac_indiv %>% select(Smoking_behavior__consumption__,Arterial_hypertension_duration_r,Abdomen_circumference__cm_), 2,function(x) str_which(x,"^\\D|\\D$"))
 
 
 ```
@@ -158,5 +173,39 @@ ggplot(df_test, aes(x = df_test$cut_test,fill=df_test$cut_test)) + geom_bar() + 
    color = "blue", size=1.5) +  
   geom_vline(xintercept = 3, linetype="dotted", 
                 color = "red", size=1.5) 
+```
+
+
+# nombre de mesure null par patient
+
+```{r}
+PA_SBP_zero<- PA %>% group_by(UNID) %>% summarise(n=n(),sum(SBP == 0))%>% ungroup()
+PA_SBP_zero$pourcent <- PA_SBP_zero$`sum(SBP == 0)`/PA_SBP_zero$n
+summary(PA_SBP_zero)
+median(PA_SBP_zero$pourcent)
+```
+
+Problème numéro 1 il manque 20 % des données mesurer pour plus de 50 % des  patients on fait quoi ????
+
+Note qu'elle est le seuil de nombre de valeurs manquante ou on vire le patients ???
+
+
+Note perso quand la pressio systolique manque la diastolique aussi 
+proof : 
+
+```{r}
+mean(which(PA$SBP == 0) == which(PA$DBP==0))
+```
+
+Note choix de françois pour estimer la variabilité je choisis pour le moment de retirer les valeurs = 0 
+
+
+#  variabilité
+
+```{r}
+PA_SBP_var <- PA %>%filter(SBP!=0,DBP!=0) %>%group_by(UNID) %>% summarise(var(DBP),var(SBP))%>% ungroup()
+
+summary(PA_SBP_var)
+
 ```
 
