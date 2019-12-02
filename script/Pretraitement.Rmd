@@ -15,15 +15,8 @@ fun
 import
 ```{r}
 carac_indiv_all <- read.csv("data/Grenoble.csv",sep = ",",dec = ".",header = TRUE)
-
-
-
 carac_indiv <- carac_indiv_all%>% select(1:which(colnames(carac_indiv_all)=="Abdomen_circumference__cm_" ),UnID) # obbbligation de correction a la main autres variables doivent etre vérifier cf variables soit disant calculé
-PA <- read.csv("data/Grenoble_raw.csv")
-
-
-
-
+PA <- read.csv("data/Grenoble_raw.csv")  
 ```
 
 Uniquement patient grenoblois
@@ -52,8 +45,7 @@ PA <- PA %>% select(-VISIT,-Valid)
 ## vérification
 
 ```{r}
-
-PA_without_zero <- PA  %>% filter(SBP!=0,DBP!=0)
+PA_without_zero <- PA  %>% filter(SBP != 0,DBP != 0)
 
 summary(PA_without_zero)
   
@@ -104,8 +96,6 @@ Abdomen_circumference__cm_
 apply(carac_indiv %>% select(Smoking_behavior__consumption__,Arterial_hypertension_duration_r,Abdomen_circumference__cm_), 2,function(x) str_subset(x,"^\\D|\\D$"))
 
 apply(carac_indiv %>% select(Smoking_behavior__consumption__,Arterial_hypertension_duration_r,Abdomen_circumference__cm_), 2,function(x) str_which(x,"^\\D|\\D$"))
-
-
 ```
 grosse problématique nécessittant une discussion approfondie
 
@@ -149,7 +139,9 @@ graph anglais
 
 
 ```{r}
-test <- PA[PA$UNID=="00abb1bc-7621-4e68-8fe9-cb63838ae9ca",]
+test <- PA[PA$UNID=="00abb1bc-7621-4e68-8fe9-cb63838ae9ca",] %>% filter(SBP>0)
+ggplot(test, aes(x = test$Time,y=test$SBP)) + geom_smooth() + geom_line()  + ggtitle("") +labs(fill = "",x="")  # A regarder comment c'est fait
+
 
 
 plot(test$SBP[test$SBP > 0],type = "line",main = "Systolic blood pressure variation",ylab = "Blood pressure",xlab = "mesure")
@@ -175,6 +167,7 @@ ggplot(df_test, aes(x = df_test$cut_test,fill=df_test$cut_test)) + geom_bar() + 
                 color = "red", size=1.5) 
 ```
 
+léger + modéré vs sevère 
 
 # nombre de mesure null par patient
 
@@ -203,9 +196,13 @@ Note choix de françois pour estimer la variabilité je choisis pour le moment d
 #  variabilité
 
 ```{r}
-PA_SBP_var <- PA %>%filter(SBP!=0,DBP!=0) %>%group_by(UNID) %>% summarise(var(DBP),var(SBP))%>% ungroup()
+PA_SBP_var <- PA %>% filter(SBP != 0,DBP != 0) %>% group_by( UNID ) %>% summarise(var( DBP ),var(SBP))%>% ungroup()
 
 summary(PA_SBP_var)
-
 ```
+
+```{r}
+lm(PA_SBP_var$`var(DBP)`)
+```
+
 
