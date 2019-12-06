@@ -140,7 +140,10 @@ graph anglais
 
 ```{r}
 test <- PA[PA$UNID=="00abb1bc-7621-4e68-8fe9-cb63838ae9ca",] %>% filter(SBP>0)
-ggplot(test, aes(x = test$Time,y=test$SBP)) + geom_smooth() + geom_line()  + ggtitle("") +labs(fill = "",x="")  # A regarder comment c'est fait
+ggplot(test) + geom_smooth( aes(x = test$Time,y=test$SBP)) + 
+ # geom_line()  + 
+  ggtitle("") +
+  labs(fill = "",x="")  # A regarder comment c'est fait
 
 
 
