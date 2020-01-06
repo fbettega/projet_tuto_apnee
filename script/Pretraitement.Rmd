@@ -6,6 +6,8 @@ output: pdf_document
 ```{r setup, include=FALSE}
 library("tidyverse")
 library("lubridate")
+source(file = "pre_tt.R")
+a <- pre_tt_PA("data/Grenoble_raw.csv")
 ```
 fun 
 ```{r}
