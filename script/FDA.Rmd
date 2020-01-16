@@ -1,0 +1,366 @@
+---
+title: "FDA"
+author: "francois bettega"
+date: "14/01/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set
+library(tidyverse)
+library(fda.usc)
+library(cluster)
+library(factoextra)
+source(file = "pre_tt.R")
+df <- pre_tt_PA("data/Grenoble_raw.csv")
+
+to_indice <- function(X) {
+  x <- seq_along(unique(X))
+  names(x) <- unique(X)
+  x[as.character(X)]
+}
+
+```
+
+# problèle a régler pour heure minute
+```{r}
+x <- df %>% mutate(heure_mesure = hour(Time)+ (24*(MonDay-1)) + minute(Time)/60) 
+
+
+df_to_expand <- df %>% mutate(heure_mesure = hour(Time) + (24*(MonDay-1)) + minute(Time)/60)
+
+heure_de_mesure_unique <-  expand.grid(heure_mesure = unique(df_to_expand$heure_mesure),UNID =unique(df_to_expand$UNID))
+
+Cart_prob_pat_heuremes <- right_join(x,heure_de_mesure_unique ,by = c("UNID", "heure_mesure"))
+
+Systo <- Cart_prob_pat_heuremes %>% select(UNID,SBP,heure_mesure)
+
+
+large_systo <- Systo %>% pivot_wider(names_from = heure_mesure, values_from = SBP) %>% select(-UNID)  %>% t %>% as.data.frame %>%  fill(names(.), .direction = "downup") %>% t
+
+```
+
+```{r}
+large_systo5 <- Systo %>% pivot_wider(names_from = heure_mesure, values_from = SBP) %>% select(-UNID)  
+
+vc <- as.vector(as.matrix(large_systo5[1,]))
+
+which(!is.na(vc))
+
+
+
+```
+
+
+```{r}
+
+# découpage en heure 
+Systo <- df %>% mutate(heure_mesure = hour(df$Time)) %>% select(UNID,SBP,heure_mesure) 
+
+large_systo <- Systo %>% pivot_wider(names_from = heure_mesure, values_from = SBP,    values_fn = list(SBP = mean)) %>% select(-UNID)  %>% t %>% as.data.frame %>%  fill(names(.), .direction ="downup") %>% t
+
+
+```
+
+```{r}
+
+fonctionnaldata <- fdata(large_systo,names = list(main = "Pression systolique", xlab = "heure de la mesure" , ylab = "SBP"))
+plot(fonctionnaldata)
+
+
+```
+# Raw data, Smoothing by Fixed Basis and Kernel
+```{r}
+temp.fd <-  fdata2fd(fonctionnaldata, type.basis = "bspline", nbasis = 15)
+plot(optim.basis(temp.fd, lambda = 1000,numbasis = 20)$fdata.est, main = "Bspline basis")
+
+
+temp.fd <-  fdata2fd(fonctionnaldata, type.basis = "fourier", nbasis = 15)
+
+plot(optim.basis(temp.fd, lambda = 1000,numbasis = 20)$fdata.est, main = "fourier basis")
+
+
+
+plot(optim.np(fonctionnaldata)$fdata.est, main = "Kernel smooth")
+```
+
+
+# fda derviate
+
+```{r}
+fonctionnaldata <- fdata.deriv(fonctionnaldata, nderiv = 1)
+fonctionnaldata$data <- abs(fonctionnaldata$data)
+
+plot(absorp.d1)
+
+absorp.d2 <- fdata.deriv(fonctionnaldata, nderiv = 2)
+
+plot(absorp.d2)
+```
+
+
+
+
+#PCA
+
+```{r}
+pc <- fdata2pc(fonctionnaldata)
+summary(pc)
+```
+
+
+# recherche fonction trim
+```{r}
+plot(func.mean(fonctionnaldata))
+lines(func.trim.mode(fonctionnaldata, trim = 0.15), col = 2, lty =2)
+lines(func.trim.RP(fonctionnaldata, trim = 0.15),col = 3,lty = 3)
+lines(func.med.mode(fonctionnaldata, trim = 0.15),col = 4,lty = 4)
+lines(func.med.RP(fonctionnaldata, trim = 0.15),col = 5, lty = 5)
+```
+
+
+```{r}
+dist_curve <- metric.lp(fonctionnaldata)
+```
+
+
+# distance a la courbe moyenne 
+```{r}
+dist_curve <- metric.lp(fonctionnaldata,func.mean(fonctionnaldata))
+```
+
+
+
+depth 
+```{r}
+depth_sbp<-depth.FM(fonctionnaldata)
+
+data_depth <- depth_sbp$dep
+```
+
+
+```{r}
+library(cluster)
+library(factoextra)
+
+res.hc <- hclust(dist(data_depth),  method = "ward.D2")
+fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp <- cutree(res.hc, k = 3)
+
+```
+
+
+```{r}
+plot(fonctionnaldata,col = grp)
+```
+
+
+
+# premiere dérivée
+```{r}
+fonctionnaldata_deriv <- fdata.deriv(fonctionnaldata, nderiv = 1)
+
+
+depth_sbp <- depth.FM(fonctionnaldata_deriv)
+
+data_depth <- depth_sbp$dep
+
+
+
+res.hc <- hclust(dist(data_depth),  method = "ward.D2")
+#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp <- cutree(res.hc, k = 3)
+
+
+plot(fonctionnaldata_deriv,col = grp)
+```
+
+
+
+```{r}
+fonctionnaldata_abs <- fonctionnaldata_deriv
+fonctionnaldata_abs$data <- abs(fonctionnaldata_deriv$data)
+
+
+depth_sbp_abs <- depth.FM(fonctionnaldata_abs)
+
+data_depth_abs <- depth_sbp_abs$dep
+
+
+
+res.hc_abs <- hclust(dist(data_depth_abs),  method = "ward.D2")
+#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp_abs <- cutree(res.hc_abs, k = 3)
+
+
+
+plot(fonctionnaldata_abs,col = grp_abs)
+
+
+```
+
+
+# seconde  dérivée
+```{r}
+fonctionnaldata_deriv <- fdata.deriv(fonctionnaldata, nderiv = 2)
+
+
+depth_sbp <- depth.FM(fonctionnaldata_deriv)
+
+data_depth <- depth_sbp$dep
+
+
+
+res.hc <- hclust(dist(data_depth),  method = "ward.D2")
+#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp <- cutree(res.hc, k = 3)
+
+
+plot(fonctionnaldata_deriv,col = grp)
+```
+
+
+
+```{r}
+fonctionnaldata_abs <- fonctionnaldata_deriv
+fonctionnaldata_abs$data <- abs(fonctionnaldata_deriv$data)
+
+
+depth_sbp_abs <- depth.FM(fonctionnaldata_abs)
+
+data_depth_abs <- depth_sbp_abs$dep
+
+
+
+res.hc_abs <- hclust(dist(data_depth_abs),  method = "ward.D2")
+#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp_abs <- cutree(res.hc_abs, k = 3)
+
+
+
+plot(fonctionnaldata_abs,col = grp_abs)
+```
+
+
+
+# troisieme   dérivée
+```{r}
+fonctionnaldata_deriv <- fdata.deriv(fonctionnaldata, nderiv = 3)
+
+
+depth_sbp <- depth.FM(fonctionnaldata_deriv)
+
+data_depth <- depth_sbp$dep
+
+
+
+res.hc <- hclust(dist(data_depth),  method = "ward.D2")
+#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp <- cutree(res.hc, k = 3)
+
+
+plot(fonctionnaldata_deriv,col = grp)
+```
+
+```{r}
+fonctionnaldata_abs <- fonctionnaldata_deriv
+fonctionnaldata_abs$data <- abs(fonctionnaldata_deriv$data)
+
+
+depth_sbp_abs <- depth.FM(fonctionnaldata_abs)
+
+data_depth_abs <- depth_sbp_abs$dep
+
+
+
+res.hc_abs <- hclust(dist(data_depth_abs),  method = "ward.D2")
+#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp_abs <- cutree(res.hc_abs, k = 3)
+
+
+
+plot(fonctionnaldata_abs,col = grp_abs)
+```
+
+
+
+
+# neuvieme dérivée
+```{r}
+fonctionnaldata_deriv <- fdata.deriv(fdata.deriv(fonctionnaldata, nderiv = 3),nderiv = 3)
+
+
+depth_sbp <- depth.FM(fonctionnaldata_deriv)
+
+data_depth <- depth_sbp$dep
+
+
+
+res.hc <- hclust(dist(data_depth),  method = "ward.D2")
+fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp <- cutree(res.hc, k = 3)
+
+
+plot(fonctionnaldata_deriv,col = grp)
+```
+
+
+
+```{r}
+fonctionnaldata_abs <- fonctionnaldata_deriv
+fonctionnaldata_abs$data <- abs(fonctionnaldata_deriv$data)
+
+
+depth_sbp_abs <- depth.FM(fonctionnaldata_abs)
+
+data_depth_abs <- depth_sbp_abs$dep
+
+
+
+res.hc_abs <- hclust(dist(data_depth_abs),  method = "ward.D2")
+#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp_abs <- cutree(res.hc_abs, k = 3)
+
+
+
+plot(fonctionnaldata_abs,col = grp_abs)
+```
+
+
+
+ 
+
+
+```{r}
+fonctionnaldata <- optim.np(fonctionnaldata)
+plot(fonctionnaldata$fdata.est)
+```
+
+```{r}
+fonctionnaldata_deriv <- fdata.deriv(fonctionnaldata$fdata.est, nderiv = 1)
+
+
+depth_sbp <- depth.FM(fonctionnaldata_deriv)
+
+data_depth <- depth_sbp$dep
+
+
+
+res.hc <- hclust(dist(data_depth),  method = "ward.D2")
+#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp <- cutree(res.hc, k = 3)
+
+
+plot(fonctionnaldata_deriv,col = grp)
+```
+

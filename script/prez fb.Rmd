@@ -1,0 +1,253 @@
+---
+title: "Projet tutoret Francois"
+author: "francois bettega"
+date: "15/01/2020"
+output: slidy_presentation
+---
+
+```{r setup, include=FALSE,warning=FALSE,message = FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning=FALSE,message = FALSE)
+library("tidyverse")
+library("lubridate")
+library(htmlTable)
+library(conflicted)
+library(fda.usc)
+library(cluster)
+library(factoextra)
+library(caret)
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
+source(file = "pre_tt.R")
+df <- pre_tt_PA("data/Grenoble_raw.csv")
+carac_indiv_all <- read.csv("data/Grenoble.csv",sep = ",",dec = ".",header = TRUE)
+carac <- carac_indiv_all %>% select(UnID,VAR45) %>% mutate(VAR45 = cut(VAR45, 
+                   breaks=c(-Inf, 15, 30, Inf), 
+                   labels=c(1,2,3)))
+```
+
+## Problème Rencontré avec les données 
+
+
+### Choix de prétraitement
+
+```{r }
+Prez <- read.csv("data/Grenoble_raw.csv")
+
+PA_monday <- Prez %>% filter(SBP != 0,DBP != 0) %>% filter(MonDay != 1,MonDay != 2) 
+```
+
+- Au totale `r nrow( Prez  %>% filter(SBP == 0,DBP == 0))` mesure on comme valeurs zero nous avons choisis de les retirer du data-set.
+
+- Parmis les mesures restante la variable Monday (jour de la mesures) est mal encodé pour un patient elle prend normalement 1 ou 2. Mais prend ici comme valeurs -364 et -363 nous avons choisis de la reéencoder en 1 et 2
+
+
+### Problème non résolue
+
+- Mesures effectuers a des moments différents (minutes différentes pour les patients) proposer une structure de données permetttant de conserver cette information en rendant les courbes comparables. : 
+  - Hypothèse assez forte : Nous avons choisis de considérer que la pression artérielle ne varié pas être deux mesures. exemple avec deux patients ci-dessous
+
+```{r }
+df_exemple <- df %>% filter((UNID=="00abb1bc-7621-4e68-8fe9-cb63838ae9ca" |UNID=="ffad3cfc-b785-4ad4-8492-d7968c0e1aaa" ) )
+x <- df_exemple %>% mutate(heure_mesure = hour(Time)+ (24*(MonDay-1)) + minute(Time)/60) 
+
+
+df_to_expand <- df_exemple %>% mutate(heure_mesure = hour(Time) + (24*(MonDay-1)) + minute(Time)/60)
+
+heure_de_mesure_unique <-  expand.grid(heure_mesure = unique(df_to_expand$heure_mesure),UNID =unique(df_to_expand$UNID))
+Cart_prob_pat_heuremes <- right_join(x,heure_de_mesure_unique ,by = c("UNID", "heure_mesure"))
+Systo <- Cart_prob_pat_heuremes %>% select(UNID,SBP,heure_mesure)
+
+large_systo_avec_na <- Systo %>% pivot_wider(names_from = heure_mesure, values_from = SBP) %>% select(-UNID)
+
+htmlTable(large_systo_avec_na[,1:10],rnames = paste(c("patient 1", "patient 2")),caption="Exemple de données pour deux patients avec les NA")
+
+large_systo <- large_systo_avec_na  %>% t %>% as.data.frame %>%  fill(names(.), .direction = "downup") %>% t
+htmlTable(large_systo[,1:10],rnames = paste(c("patient 1", "patient 2")),header =  colnames(large_systo_avec_na)[1:10],caption="Exemple de données pour deux patients avec les complété")
+```
+
+
+
+
+Je n'ai pas encore trouver le moyen de faire correspondre les heures de mesures d'un jour sur l'
+
+Par exmple entre deux patients : 
+- Un ayant commencer à 12h et finis à 12h le lendemain 
+- Le second ayant commencer à 8 h et finis a 8 h le lendemain
+
+Avec mon traitement actuelle de données les valeurs des mesures après 12h sont bien aligné pour les deux patients
+
+Mais les mesures avant 12 h par exemple 10 h ne le sont pas car effectué sur des jours différents.
+
+Je cherche encore une bonne solution.
+
+Pour le moment je travail avec une mesure par heure par patients et en cas de plusieurs mesures j'utilise la moyenne des mesures.
+
+## Présentations 
+
+```{r}
+Systo <- df %>% mutate(heure_mesure = hour(Time)+ (24*(MonDay-1)))  %>% select(UNID,SBP,heure_mesure)
+large_systo <- Systo %>% pivot_wider(names_from = heure_mesure, values_from = SBP,values_fn = list(SBP = mean)) 
+
+carac <- carac[order(carac$UnID),]
+large_systo <- large_systo[order(large_systo$UNID),]
+names_large_systo <- large_systo  %>% select(UNID)
+
+
+large_systo <- large_systo %>% select(-UNID)  %>% t %>% as.data.frame %>%  fill(names(.), .direction = "downup") %>% t
+```
+
+Données difficilement lisible, représentations d'une tendance avec la courbe moyenne.
+
+```{r}
+fonctionnaldata <- fdata(large_systo,names = list(main = "Pression systolique", xlab = "heure de la mesure" , ylab = "SBP"))
+#fonctionnaldata_smooth <- optim.np(fonctionnaldata)$fdata.est
+```
+
+
+```{r}
+plot(fonctionnaldata,col = "grey")
+lines(func.mean(fonctionnaldata), col = 2, lty =2)
+```
+
+Nos données coloré en fonction du score AHI  
+- Noire < 15
+- Rouge [15,30]
+- Vert > 30
+```{r}
+plot(fonctionnaldata,col = carac$VAR45)
+```
+
+
+
+
+
+## Premiere approche
+
+
+Utilisation de la dérivé de la courbe de pression pour évaluer ça variabilité.
+```{r}
+fonctionnaldata_deriv <- fdata.deriv(fonctionnaldata, nderiv = 1)
+
+
+depth_sbp <- depth.FM(fonctionnaldata_deriv)
+
+data_depth <- depth_sbp$dep
+
+
+
+res.hc <- hclust(dist(data_depth),  method = "ward.D2")
+#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp <- cutree(res.hc, k = 3)
+
+
+plot(fonctionnaldata_deriv,col = grp,main = "Pression systolique coloré en fonction \n de la distance a la courbe mediane",ylab = "Dérivée la SPB en fonction du temps")
+plot(fonctionnaldata_deriv,col = carac$VAR45,main = "Pression systolique coloré en fonction \n de la distance a la AHI",ylab = "Dérivée la SPB en fonction du temps")
+```
+
+- Premier difficulté Répartission très inégale de nos patients selon les groupes : très grande majorité des patients avec une AHI supérieur a 30.
+
+
+- Début et fin de graph problématique mais ce problème et résolue si on utilise les mesures prise a la minute pret.
+
+
+
+Evaluation de la valeurs absolue de la dérivée
+```{r}
+fonctionnaldata_abs <- fonctionnaldata_deriv
+fonctionnaldata_abs$data <- abs(fonctionnaldata_deriv$data)
+
+
+depth_sbp_abs <- depth.FM(fonctionnaldata_abs)
+data_depth_abs <- depth_sbp_abs$dep
+
+
+
+res.hc_abs <- hclust(dist(data_depth_abs),  method = "ward.D2")
+#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+
+grp_abs <- cutree(res.hc_abs, k = 3)
+plot(fonctionnaldata_abs,col = grp_abs,main = "Valeur absolue de la dérivé de la pression systolique \n  coloréen fonction  de la distance a la courbe mediane",ylab = "Valeur absolue Dérivée la SPB en fonction du temps")
+```
+
+Abandon car n'apporte rien par rapport a la dérivé seul.
+
+
+### Avenir potentiel de cette approche 
+
+- Discussion de l'utilisation de la valeur de la dérivé ou du nombres de fois ou elle s'annule.
+
+- Utilisation des fonctions de mesure de position et de dispertion pour forme fonctionnel 
+**manque de temps**
+
+```{r}
+
+plot(func.mean(fonctionnaldata_deriv))
+lines(func.trim.mode(fonctionnaldata_deriv, trim = 0.95), col = 2, lty =2)
+
+
+
+plot(func.trimvar.mode(fonctionnaldata, trim = 0.95),ylim = c(20,300))
+lines(func.trimvar.mode(fonctionnaldata, trim = 0.05), col = 3, lty =2)
+```
+
+
+## Seconde approche
+
+- On centre les pression systolique pour les rendres comparable d'un patients a l'autres 
+
+- Variance par patient
+
+- Prediction avec un SVM score sur cross-validation a 5 folds.
+```{r }
+Var_mesure <- df %>% group_by(UNID) %>% mutate(SBC = (SBP - min(SBP))/(max(SBP) - min(SBP))) 
+var_mesure_pat <- Var_mesure %>% summarise(var_SBC = var(SBC)) 
+
+
+Var_table <- var_mesure_pat %>% inner_join(carac,by =c("UNID" = "UnID"))
+Var_table %>% head() %>% print()
+
+ratio_gravite_sas <- as.matrix(table(carac$VAR45)/length(carac$VAR45))
+
+# Predict_by_var <- Var_table %>% mutate(sev_pred = cut(var_SBC, 
+#                    breaks=c(-Inf,quantile(var_mesure_pat$var_SBC,ratio_gravite_sas[c(1,3),1]), Inf), 
+#                    labels=c(1,2,3)))
+#   
+
+model_svm_linear <- suppressMessages(train(
+ VAR45 ~ var_SBC, data = Var_table, method = "svmLinear",
+  trControl = trainControl("cv", number = 5),
+  tuneGrid = expand.grid(C = seq(0, 2, length = 20))))
+
+train_per_svm_linear <- getTrainPerf(model_svm_linear)
+
+train_per_svm_linear$TrainAccuracy
+```
+
+
+
+
+
+
+## outils potentiellement utile
+### transormation
+```{r}
+temp.fd <-  fdata2fd(fonctionnaldata, type.basis = "bspline", nbasis = 15)
+plot(optim.basis(temp.fd, lambda = 1000,numbasis = 20)$fdata.est, main = "Bspline basis")
+
+
+temp.fd <-  fdata2fd(fonctionnaldata, type.basis = "fourier", nbasis = 15)
+
+plot(optim.basis(temp.fd, lambda = 1000,numbasis = 20)$fdata.est, main = "fourier basis")
+```
+
+
+### PCA et clusturing
+
+```{r}
+pc <- fdata2pc(fonctionnaldata)
+plot(pc$rotation[1:2])
+```
+
+
+
