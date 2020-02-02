@@ -7,12 +7,13 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set
-library(tidyverse)
+
 library(fda.usc)
 library(cluster)
 library(factoextra)
+library(tidyverse)
 source(file = "pre_tt.R")
-df <- pre_tt_PA("data/Grenoble_raw.csv")
+#df <- pre_tt_PA("data/Grenoble_raw.csv")
 
 to_indice <- function(X) {
   x <- seq_along(unique(X))
@@ -20,12 +21,39 @@ to_indice <- function(X) {
   x[as.character(X)]
 }
 
-test <- longue_data_heures("data/Grenoble_raw.csv")
+#large_systo <- longue_data_heures("data/Grenoble_raw.csv")
+
+
+blood_pressure <- longue_data_minutes("data/Grenoble_raw.csv")
+
 
 
 ```
 
 # problèle a régler pour heure minute
+
+
+```{r}
+    df <- pre_tt_PA("data/Grenoble_raw.csv")
+
+    df_over_24_hours <- df %>% group_by(UNID) %>% filter(Time < (min(Time) + days(1))) 
+
+    ecart_mesure <- df_over_24_hours %>% group_by(UNID) %>% arrange(Time) %>%  mutate(ecart_mesure = as.integer(Time - lag(Time, default = Time[1]))/60 ) %>% filter(ecart_mesure != 0)
+
+    
+    quantile(ecart_mesure$ecart_mesure,seq(1,100)/100)
+    
+    ggplot(data = ecart_mesure) +
+      geom_histogram(aes(ecart_mesure),binwidth = 10)
+    
+
+```
+
+Basé sur le plot et les quantiles le découpages en 10eme d'heure semble acceptable
+
+
+
+
 ```{r}
 x <- df %>% mutate(heure_mesure = hour(Time)+ (24*(MonDay-1)) + minute(Time)/60) 
 
@@ -43,31 +71,16 @@ large_systo <- Systo %>% pivot_wider(names_from = heure_mesure, values_from = SB
 
 ```
 
+
 ```{r}
-large_systo5 <- Systo %>% pivot_wider(names_from = heure_mesure, values_from = SBP) %>% select(-UNID)  
-
-vc <- as.vector(as.matrix(large_systo5[1,]))
-
-which(!is.na(vc))
-
-
 
 ```
 
 
 ```{r}
 
-# découpage en heure 
-Systo <- df %>% mutate(heure_mesure = hour(df$Time)) %>% select(UNID,SBP,heure_mesure) 
 
-large_systo <- Systo %>% pivot_wider(names_from = heure_mesure, values_from = SBP,    values_fn = list(SBP = mean)) %>% select(-UNID)  %>% t %>% as.data.frame %>%  fill(names(.), .direction ="downup") %>% t
-
-
-```
-
-```{r}
-
-fonctionnaldata <- fdata(large_systo,names = list(main = "Pression systolique", xlab = "heure de la mesure" , ylab = "SBP"))
+fonctionnaldata <- fdata(df,names = list(main = "Pression systolique", xlab = "heure de la mesure" , ylab = "SBP"))
 plot(fonctionnaldata)
 
 
@@ -147,9 +160,9 @@ library(cluster)
 library(factoextra)
 
 res.hc <- hclust(dist(data_depth),  method = "ward.D2")
-fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+fviz_dend(res.hc, cex = 0.5, k = 2, palette = "jco") 
 
-grp <- cutree(res.hc, k = 3)
+grp <- cutree(res.hc, k = 2)
 
 ```
 
@@ -174,7 +187,7 @@ data_depth <- depth_sbp$dep
 res.hc <- hclust(dist(data_depth),  method = "ward.D2")
 #fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
 
-grp <- cutree(res.hc, k = 3)
+grp <- cutree(res.hc, k = 2)
 
 
 plot(fonctionnaldata_deriv,col = grp)
