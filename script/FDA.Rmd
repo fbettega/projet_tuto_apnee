@@ -20,6 +20,9 @@ to_indice <- function(X) {
   x[as.character(X)]
 }
 
+test <- longue_data_heures("data/Grenoble_raw.csv")
+
+
 ```
 
 # problèle a régler pour heure minute
