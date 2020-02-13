@@ -68,6 +68,7 @@ htmlTable(large_systo[,1:10],rnames = paste(c("patient 1", "patient 2")),header 
 
 
 
+
 Je n'ai pas encore trouver le moyen de faire correspondre les heures de mesures d'un jour sur l'
 
 Par exmple entre deux patients : 

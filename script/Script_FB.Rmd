@@ -1,0 +1,214 @@
+---
+title: "Script_FB"
+author: "Francois Bettega"
+date: "11/02/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set
+
+library(fda.usc)
+library(cluster)
+library(factoextra)
+library(tidyverse)
+library(ROSE)
+source(file = "pre_tt.R")
+#df <- pre_tt_PA("data/Grenoble_raw.csv")
+
+to_indice <- function(X) {
+  x <- seq_along(unique(X))
+  names(x) <- unique(X)
+  x[as.character(X)]
+}
+
+#large_systo <- longue_data_heures("data/Grenoble_raw.csv")
+#conflict_prefer("lag", "dplyr")
+
+blood_pressure <- longue_data_minutes("data/Grenoble_raw.csv")
+
+# enlève tete et queu de la dérivé
+functional_data_heas_tail_deriv <- function(data){
+  data[,1] <- 0
+  data[,ncol(data)] <- 0
+  return(data)
+  
+}
+
+```
+
+# Chargement des données 
+
+```{r}
+SVM_table <- pre_tt_PA("data/Grenoble_raw.csv")
+
+carac_indiv_all <- read.csv("data/Grenoble.csv",sep = ",",dec = ".",header = TRUE)
+carac <- carac_indiv_all %>% select(UnID,VAR45) %>% mutate(VAR45 = cut(VAR45, 
+                   breaks=c(-Inf,30,Inf), 
+                   labels=c(0,1)))
+
+Var_mesure <- SVM_table %>% group_by(UNID) %>% mutate(SBC = (SBP - min(SBP))/(max(SBP) - min(SBP))) 
+var_mesure_pat <- Var_mesure %>% summarise(var_SBC = var(SBC)) 
+Var_table <- var_mesure_pat %>% inner_join(carac,by =c("UNID" = "UnID"))
+
+
+df_fonc  <- blood_pressure$systo  %>%  select(-UNID) %>% as.matrix()
+reponse <- Var_table$VAR45
+```
+
+```{r}
+fonctionnaldata <- fdata(df_fonc,names = list(main = "Pression systolique", xlab = "heure de la mesure" , ylab = "SBP"))
+
+fonctionnaldata_deriv <- fdata.deriv(fonctionnaldata, nderiv = 1)
+fonctionnaldata_deriv$data <- functional_data_heas_tail_deriv(fonctionnaldata_deriv$data)
+
+heure <-   blood_pressure$systo %>% dplyr::select(-UNID) %>% colnames %>% str_replace_all("\\.","h") %>% paste0(.,"0") %>% .[{str_detect(.,"h10|h30|h50") ->> pos }  ] 
+palette(c("blue","grey"))
+plot(fonctionnaldata_deriv[1:10],col = carac$VAR45,axes=FALSE,main = "Pression systolique coloré en fonction \n de la distance a la AHI",ylab = "Dérivée la SPB en fonction du temps")
+legend(1, 20, legend=c("Apnée légère", "Apnée Sévère"),
+       col=c("grey", "blue"), lty=1:2, cex=0.8)
+axis(1, at=which(pos==TRUE), labels=heure)
+axis(2, at=seq(-20,20,10), labels=as.character(seq(-20,20,10)))
+
+
+
+```
+
+
+```{r}
+SVM_table <- pre_tt_PA("data/Grenoble_raw.csv")
+
+carac_indiv_all <- read.csv("data/Grenoble.csv",sep = ",",dec = ".",header = TRUE)
+carac <- carac_indiv_all %>% select(UnID,VAR45) %>% mutate(VAR45 = cut(VAR45, 
+                   breaks=c(-Inf,30, Inf), 
+                   labels=c("low","sever")))
+#Var_mesure <- SVM_table %>% group_by(UNID) %>% mutate(SBC = (SBP - min(SBP))/(max(SBP) - min(SBP))) 
+var_mesure_pat <- Var_mesure %>% summarise(var_SBC = var(SBP)) 
+Var_table <- var_mesure_pat %>% inner_join(carac,by =c("UNID" = "UnID"))
+
+
+reponse <- Var_table$VAR45
+
+table(reponse)*100/length(reponse)
+
+grp[grp==2] <- 0
+table(grp)/length(grp)
+mean(reponse==grp)
+
+library(caret)
+
+
+model_svm_linear <- suppressMessages(train(
+ VAR45 ~ var_SBC, data = Var_table, method = "svmLinear",
+  trControl = trainControl("cv", number = 5),
+  tuneGrid = expand.grid(C = seq(0.001, 2, length = 20))))
+
+train_per_svm_linear <- getTrainPerf(model_svm_linear)
+
+train_per_svm_linear$TrainAccuracy
+```
+
+
+```{r}
+
+library(MLeval)
+
+myTrainingControl <- trainControl(method = "cv", 
+                                  number = 5, 
+                                  savePredictions = TRUE, 
+                                  classProbs = TRUE, 
+                                  verboseIter = FALSE)
+
+logisticreg = train(VAR45 ~ var_SBC, data = Var_table, 
+                       method="glm",
+                       family="binomial",
+                       trControl = myTrainingControl, 
+                       #preProcess = c("center","scale"), 
+                      )
+
+##
+
+x <- evalm(logisticreg)
+
+## get roc curve plotted in ggplot2
+
+x$roc
+
+train_per_svm_linear <- getTrainPerf(logisticreg)
+
+train_per_svm_linear$TrainAccuracy
+```
+
+```{r}
+my_var <- Var_table %>% group_by(VAR45) %>% summarise(moy = mean(var_SBC))
+
+x1 <- Var_table %>% filter(VAR45=="sever") %>% select(var_SBC) %>% as.matrix()
+x2 <- Var_table %>% filter(VAR45!="sever") %>% select(var_SBC) %>% as.matrix()
+
+t.test(x1,x2)
+
+```
+
+
+
+```{r}
+knn.classif <- classif.knn(
+  reponse,
+  fonctionnaldata_deriv,
+)
+
+
+
+summary(knn.classif)
+```
+
+
+
+```{r}
+Var_mesure <- blood_pressure$systo
+colnames(Var_mesure) <- paste0(c(rep("h",139),""),colnames(Var_mesure))
+
+
+Var_table <- Var_mesure %>% inner_join(carac,by = c("UNID" = "UnID"))
+
+trainIndex <- createDataPartition(Var_table$VAR45, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+Var_tablesTrain <- Var_table[ trainIndex,]
+Var_tableTest  <- Var_table[-trainIndex,]
+
+rose_train <- ROSE(VAR45 ~ ., data  = Var_tablesTrain)$data    
+
+reponse_rose <- rose_train$VAR45
+
+df_fonc_rose  <- rose_train  %>%  select(-UNID,-VAR45) %>% as.matrix()
+
+fonctionnaldata_rose <- fdata(df_fonc_rose,names = list(main = "Pression systolique", xlab = "heure de la mesure" , ylab = "SBP"))
+
+fonctionnaldata_deriv_rose <- fdata.deriv(fonctionnaldata_rose, nderiv = 1)
+fonctionnaldata_deriv_rose$data <- functional_data_heas_tail_deriv(fonctionnaldata_deriv_rose$data)
+
+knn.classif_rose <- classif.knn(
+  reponse_rose,
+  fonctionnaldata_deriv_rose,
+)
+summary(knn.classif_rose)
+
+```
+
+ # modele de regression FDA
+ 
+```{r}
+dat <- list(df = data.frame(reponse), x =  fonctionnaldata_deriv)
+
+glm_fonc <- classif.glm(reponse~x, data = dat)
+
+summary(glm_fonc)
+
+
+dat_rose <- list(df = data.frame(reponse_rose), x =  fonctionnaldata_deriv_rose)
+glm_fonc_rose <- classif.glm(reponse_rose~x, data = dat_rose)
+summary(glm_fonc_rose)
+```
+ 
+ 

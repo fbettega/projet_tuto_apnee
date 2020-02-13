@@ -12,6 +12,7 @@ library(fda.usc)
 library(cluster)
 library(factoextra)
 library(tidyverse)
+library(ROSE)
 source(file = "pre_tt.R")
 #df <- pre_tt_PA("data/Grenoble_raw.csv")
 
@@ -22,13 +23,74 @@ to_indice <- function(X) {
 }
 
 #large_systo <- longue_data_heures("data/Grenoble_raw.csv")
-
+#conflict_prefer("lag", "dplyr")
 
 blood_pressure <- longue_data_minutes("data/Grenoble_raw.csv")
 
+# enlève tete et queu de la dérivé
+functional_data_heas_tail_deriv <- function(data){
+  data[,1] <- 0
+  data[,ncol(data)] <- 0
+  return(data)
+  
+}
+```
+
+# rapport 
+
+```{r}
+PA <- read.csv("data/Grenoble_raw.csv")
+
+PA$Time <- dmy_hms(as.character(PA$Time))
+
+PA %>% group_by(UNID) %>% summarise(min = min(Time), max = max(Time)) %>% mutate(diff = max - min) %>%  view()
+
+```
+
+
+
+
+
+
+
+```{r}
+library(xtable)
+
+
+df <- pre_tt_PA("data/Grenoble_raw.csv")
+
+df_over_24_hours <- df %>% group_by(UNID) %>% filter(Time < (min(Time) + days(1))) 
+
+Systo_min <- df_over_24_hours  %>% mutate(heure_mesure = hour(Time),minute_mesure = cut(minute(Time), breaks = seq(0,60,10), include.lowest = TRUE)) %>% group_by(UNID,heure_mesure,minute_mesure) %>% mutate(SBP_c = max(SBP),DBP_c = max(DBP)) %>% distinct(UNID,heure_mesure,minute_mesure,SBP_c,DBP_c) %>% ungroup() %>% mutate(mesure_time = heure_mesure + as.numeric(minute_mesure)/10 ) %>% select(-heure_mesure,-minute_mesure)
+
+
+large_systo <- Systo_min %>% 
+  select(-DBP_c) %>% 
+  pivot_wider(names_from = mesure_time, values_from = SBP_c)   %>% 
+  {suppressWarnings(sort_names(.))}
+ 
+
+df_res_systo <- large_systo %>%
+  select(-UNID)   %>%
+  t %>%
+  as.data.frame %>%
+  fill(names(.), .direction ="downup") %>%
+  t %>% 
+  as_tibble %>%     rename_all(funs( c(colnames(large_systo[2:ncol(large_systo)])))) %>% 
+  mutate(UNID = large_systo$UNID)
+
+
+
+
+
+
+
+xtable(large_systo[1:2,1:10],rnames = paste(c("patient 1", "patient 2")),caption="Exemple de données pour deux patients avec les mesure manquante")
 
 
 ```
+
+
 
 # problèle a régler pour heure minute
 
@@ -36,15 +98,18 @@ blood_pressure <- longue_data_minutes("data/Grenoble_raw.csv")
 ```{r}
     df <- pre_tt_PA("data/Grenoble_raw.csv")
 
-    df_over_24_hours <- df %>% group_by(UNID) %>% filter(Time < (min(Time) + days(1))) 
+df_over_24_hours <- df %>% group_by(UNID) %>% filter(Time < (min(Time) + days(1))) 
 
-    ecart_mesure <- df_over_24_hours %>% group_by(UNID) %>% arrange(Time) %>%  mutate(ecart_mesure = as.integer(Time - lag(Time, default = Time[1]))/60 ) %>% filter(ecart_mesure != 0)
+    ecart_mesure <- df_over_24_hours %>% group_by(UNID) %>% arrange(Time) %>%  mutate(ecart_mesure = as.integer(Time - dplyr::lag(Time, default = Time[1]))/60 ) %>% filter(ecart_mesure != 0)
 
     
     quantile(ecart_mesure$ecart_mesure,seq(1,100)/100)
     
-    ggplot(data = ecart_mesure) +
-      geom_histogram(aes(ecart_mesure),binwidth = 10)
+    ggplot(data = ecart_mesure ) +
+      geom_histogram(aes(ecart_mesure),binwidth = 10,color="darkblue", fill="lightblue") +
+      scale_y_log10() +
+      scale_x_continuous(breaks = seq(0, 180, 10)) +
+      labs(title="Histogramme de l'écart entre les mesures",x="Temps(min)", y = "Log du Nombre de mesure")
     
 
 ```
@@ -55,35 +120,24 @@ Basé sur le plot et les quantiles le découpages en 10eme d'heure semble accept
 
 
 ```{r}
-x <- df %>% mutate(heure_mesure = hour(Time)+ (24*(MonDay-1)) + minute(Time)/60) 
 
-
-df_to_expand <- df %>% mutate(heure_mesure = hour(Time) + (24*(MonDay-1)) + minute(Time)/60)
-
-heure_de_mesure_unique <-  expand.grid(heure_mesure = unique(df_to_expand$heure_mesure),UNID =unique(df_to_expand$UNID))
-
-Cart_prob_pat_heuremes <- right_join(x,heure_de_mesure_unique ,by = c("UNID", "heure_mesure"))
-
-Systo <- Cart_prob_pat_heuremes %>% select(UNID,SBP,heure_mesure)
-
-
-large_systo <- Systo %>% pivot_wider(names_from = heure_mesure, values_from = SBP) %>% select(-UNID)  %>% t %>% as.data.frame %>%  fill(names(.), .direction = "downup") %>% t
+heure <-   blood_pressure$systo %>% dplyr::select(-UNID) %>% colnames %>% str_replace_all("\\.","h") %>% paste0(.,"0") %>% .[{str_detect(.,"h10|h30|h50") ->> pos }  ] 
 
 ```
 
 
-```{r}
-
-```
-
 
 ```{r}
 
+df <- blood_pressure$systo %>% select(-UNID) %>% as.matrix()
 
-fonctionnaldata <- fdata(df,names = list(main = "Pression systolique", xlab = "heure de la mesure" , ylab = "SBP"))
-plot(fonctionnaldata)
+fonctionnaldata <- fdata(df,names = list(main = "Pression systolique", xlab = "heure de la mesure" , ylab = "Systolique blood Pressure"))
+plot.fdata(fonctionnaldata) 
 
-
+plot(fonctionnaldata,col = "grey",axes=FALSE)
+lines(func.mean(fonctionnaldata), col = 2, lty = 2)
+axis(1, at=which(pos==TRUE), labels=heure)
+axis(2, at=c(50,100,150,200), labels=as.character(c(50,100,150,200)))
 ```
 # Raw data, Smoothing by Fixed Basis and Kernel
 ```{r}
@@ -104,14 +158,19 @@ plot(optim.np(fonctionnaldata)$fdata.est, main = "Kernel smooth")
 # fda derviate
 
 ```{r}
-fonctionnaldata <- fdata.deriv(fonctionnaldata, nderiv = 1)
-fonctionnaldata$data <- abs(fonctionnaldata$data)
 
-plot(absorp.d1)
+```
 
-absorp.d2 <- fdata.deriv(fonctionnaldata, nderiv = 2)
 
-plot(absorp.d2)
+```{r}
+
+
+fonctionnaldata_deriv <- fdata.deriv(fonctionnaldata, nderiv = 1)
+fonctionnaldata_deriv$data <- functional_data_heas_tail_deriv(fonctionnaldata_deriv$data)
+
+
+plot(fonctionnaldata_deriv)
+
 ```
 
 
@@ -185,7 +244,7 @@ data_depth <- depth_sbp$dep
 
 
 res.hc <- hclust(dist(data_depth),  method = "ward.D2")
-#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+fviz_dend(res.hc, cex = 0.5, k = 2, palette = "jco") 
 
 grp <- cutree(res.hc, k = 2)
 
@@ -296,9 +355,9 @@ data_depth_abs <- depth_sbp_abs$dep
 
 
 res.hc_abs <- hclust(dist(data_depth_abs),  method = "ward.D2")
-#fviz_dend(res.hc, cex = 0.5, k = 3, palette = "jco") 
+fviz_dend(res.hc, cex = 0.5, k = 2, palette = "jco") 
 
-grp_abs <- cutree(res.hc_abs, k = 3)
+grp_abs <- cutree(res.hc_abs, k = 2)
 
 
 
@@ -361,6 +420,8 @@ fonctionnaldata <- optim.np(fonctionnaldata)
 plot(fonctionnaldata$fdata.est)
 ```
 
+
+
 ```{r}
 fonctionnaldata_deriv <- fdata.deriv(fonctionnaldata$fdata.est, nderiv = 1)
 
@@ -379,4 +440,215 @@ grp <- cutree(res.hc, k = 3)
 
 plot(fonctionnaldata_deriv,col = grp)
 ```
+
+
+
+
+
+
+
+
+
+
+
+# GLM
+
+```{r}
+SVM_table <- pre_tt_PA("data/Grenoble_raw.csv")
+
+carac_indiv_all <- read.csv("data/Grenoble.csv",sep = ",",dec = ".",header = TRUE)
+carac <- carac_indiv_all %>% select(UnID,VAR45) %>% mutate(VAR45 = cut(VAR45, 
+                   breaks=c(-Inf, 15,30, Inf), 
+                   labels=c(0,1,2)))
+Var_mesure <- SVM_table %>% group_by(UNID) %>% mutate(SBC = (SBP - min(SBP))/(max(SBP) - min(SBP))) 
+var_mesure_pat <- Var_mesure %>% summarise(var_SBC = var(SBC)) 
+Var_table <- var_mesure_pat %>% inner_join(carac,by =c("UNID" = "UnID"))
+
+
+reponse <- Var_table$VAR45
+
+table(reponse)*100/length(reponse)
+```
+# test sur clusturing
+```{r}
+grp[grp==2] <- 0
+table(grp)/length(grp)
+mean(reponse==grp)
+```
+
+```{r}
+df_fonc  <- blood_pressure$systo  %>%  select(-UNID) %>% as.matrix()
+
+
+
+
+
+fonctionnaldata <- fdata(df_fonc,names = list(main = "Pression systolique", xlab = "heure de la mesure" , ylab = "SBP"))
+
+fonctionnaldata_deriv <- fdata.deriv(fonctionnaldata, nderiv = 1)
+fonctionnaldata_deriv$data <- functional_data_heas_tail_deriv(fonctionnaldata_deriv$data)
+
+
+```
+
+
+# SVM 
+##linéaire 
+```{r}
+model_svm_linear <- suppressMessages(train(
+ VAR45 ~ var_SBC, data = Var_table, method = "svmLinear",
+  trControl = trainControl("cv", number = 5),
+  tuneGrid = expand.grid(C = seq(0, 2, length = 20))))
+
+train_per_svm_linear <- getTrainPerf(model_svm_linear)
+
+train_per_svm_linear$TrainAccuracy
+```
+
+## rbf
+```{r}
+grid_radial <- expand.grid(sigma = c(0,0.01, 0.02, 0.025, 0.03, 0.04,
+ 0.05, 0.06, 0.07,0.08, 0.09, 0.1, 0.25, 0.5, 0.75,0.9),
+ C = c(0.01, 0.05, 0.1, 0.25, 0.5, 0.75,
+ 1, 1.5, 2,5))
+
+model_svm_rbf <- train(
+ VAR45 ~ var_SBC, data = Var_table, method = "svmRadial",
+  trControl = trainControl("cv", number = 10),
+  tuneGrid = grid_radial,
+  tuneLength = 10
+  )
+
+train_per_svm_rbf <- getTrainPerf(model_svm_rbf)
+
+train_per_svm_rbf$TrainAccuracy
+```
+
+
+
+# glm 
+## sur dérivée 
+```{r}
+dat <- list(df = data.frame(reponse), x =  fonctionnaldata_deriv)
+
+
+
+classif.glm(reponse~x, data = dat)
+```
+
+```{r}
+dat2 <- list(df = data.frame(reponse), x =  fonctionnaldata)
+classif.glm(reponse~x, data = dat2)
+```
+
+Problème commun classe trop dééquilibré 
+
+# rééaquilibre classe 
+
+```{r}
+SVM_table <- pre_tt_PA("data/Grenoble_raw.csv")
+
+carac_indiv_all <- read.csv("data/Grenoble.csv",sep = ",",dec = ".",header = TRUE)
+carac <- carac_indiv_all %>% select(UnID,VAR45) %>% mutate(VAR45 = cut(VAR45, 
+                   breaks=c(-Inf, 30, Inf), 
+                   labels=c(0,1)))
+Var_mesure <- SVM_table %>% group_by(UNID) %>% mutate(SBC = (SBP - min(SBP))/(max(SBP) - min(SBP))) 
+var_mesure_pat <- Var_mesure %>% summarise(var_SBC = var(SBC)) 
+Var_table <- var_mesure_pat %>% inner_join(carac,by =c("UNID" = "UnID"))
+
+
+
+up_train <- upSample(x =  Var_table %>% select(-VAR45),
+                     y = Var_table$VAR45)     
+
+```
+
+# SVM 
+## upsample
+### linéaire 
+```{r}
+model_svm_linear <- suppressMessages(train(
+ Class ~ var_SBC, data = up_train, method = "svmLinear",
+  trControl = trainControl("cv", number = 10),
+  tuneGrid = expand.grid(C = seq(0.0001, 2, length = 20))))
+
+train_per_svm_linear <- getTrainPerf(model_svm_linear)
+
+train_per_svm_linear$TrainAccuracy
+```
+
+### rbf
+```{r}
+grid_radial <- expand.grid(sigma = c(0,0.01, 0.02, 0.025, 0.03, 0.04,
+ 0.05, 0.06, 0.07,0.08, 0.09, 0.1, 0.25, 0.5, 0.75,0.9),
+ C = c(0.01, 0.05, 0.1, 0.25, 0.5, 0.75,
+ 1, 1.5, 2,5))
+
+model_svm_rbf <- train(
+ Class ~ var_SBC, data = up_train, method = "svmRadial",
+  trControl = trainControl("cv", number = 10),
+  tuneGrid = grid_radial,
+  tuneLength = 10
+  )
+
+train_per_svm_rbf <- getTrainPerf(model_svm_rbf)
+
+train_per_svm_rbf$TrainAccuracy
+```
+
+Conclusion mauvaise perf
+
+## Rose
+
+```{r}
+SVM_table <- pre_tt_PA("data/Grenoble_raw.csv")
+
+carac_indiv_all <- read.csv("data/Grenoble.csv",sep = ",",dec = ".",header = TRUE)
+carac <- carac_indiv_all %>% select(UnID,VAR45) %>% mutate(VAR45 = cut(VAR45, 
+                   breaks=c(-Inf, 30, Inf), 
+                   labels=c(0,1)))
+Var_mesure <- SVM_table %>% group_by(UNID) %>% mutate(SBC = (SBP - min(SBP))/(max(SBP) - min(SBP))) 
+var_mesure_pat <- Var_mesure %>% summarise(var_SBC = var(SBC)) 
+Var_table <- var_mesure_pat %>% inner_join(carac,by =c("UNID" = "UnID"))
+
+trainIndex <- createDataPartition(Var_table$VAR45, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+Var_tablesTrain <- Var_table[ trainIndex,]
+Var_tableTest  <- Var_table[-trainIndex,]
+
+rose_train <- ROSE(VAR45 ~ ., data  = Var_tablesTrain)$data    
+
+```
+
+### linéaire 
+
+abandonné marche trop mal 
+
+### rbf
+```{r}
+grid_radial <- expand.grid(sigma = c(0,0.01, 0.02, 0.025, 0.03, 0.04,
+ 0.05, 0.06, 0.07,0.08, 0.09, 0.1, 0.25, 0.5, 0.75,0.9),
+ C = c(0.01, 0.05, 0.1, 0.25, 0.5, 0.75,
+ 1, 1.5, 2,5))
+
+model_svm_rbf <- train(
+ VAR45 ~ var_SBC, data = rose_train, method = "svmRadial",
+  trControl = trainControl("cv", number = 10),
+  tuneGrid = grid_radial,
+  tuneLength = 10
+  )
+
+train_per_svm_rbf <- getTrainPerf(model_svm_rbf)
+
+train_per_svm_rbf$TrainAccuracy
+
+
+predicted.classes <- model_svm_rbf %>% predict(Var_tableTest)
+mean(predicted.classes == Var_tableTest$VAR45)
+```
+
+performance très variables .... abandon 
+
+## amplification sur données fonctionnels 
 
