@@ -1,0 +1,538 @@
+---
+title: "PROJET TUTORE - APNEE DU SOMMEIL"
+author: "Margaux Leroy"
+date: "2 février 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("tidyverse")
+library("lubridate")
+library(ModelMetrics)
+
+grenoble<-read.csv("Grenoble.csv")
+grenoble_raw<-read.csv("Grenoble_raw.csv")
+
+grenoble_raw$Time <- dmy_hms(as.character(grenoble_raw$Time)) #change la date en numeric
+grenoble_raw <- grenoble_raw  %>% filter(SBP != 0,DBP != 0) #enlève les mesures où SBP & DPB =0
+
+unid<-table(grenoble_raw$UNID)
+grr<-grenoble_raw
+time<-grr$Time
+
+```
+
+```{r}
+sort_names <- function(data) {
+  name  <- names(data)
+  chars <- str_subset(name,"[:upper:]")
+  nums  <- name %>% 
+    as.numeric() %>% 
+    sort() %>% 
+    sprintf("`%s`", .)
+  
+  select_(data, .dots = c(chars, nums))
+}
+
+
+longue_data_minutes <- function(x){
+  df <- x
+
+df_over_24_hours <- df %>% group_by(UNID) %>% filter(Time < (min(Time) + days(1))) 
+
+Systo_min <- df_over_24_hours  %>% mutate(heure_mesure = hour(Time),minute_mesure = cut(minute(Time), breaks = seq(0,60,10), include.lowest = TRUE)) %>% group_by(UNID,heure_mesure,minute_mesure) %>% mutate(SBP_c = max(SBP),DBP_c = max(DBP)) %>% distinct(UNID,heure_mesure,minute_mesure,SBP_c,DBP_c) %>% ungroup() %>% mutate(mesure_time = heure_mesure +as.numeric(minute_mesure)/10 ) %>% select(-heure_mesure,-minute_mesure)
+
+
+large_systo <- Systo_min %>% 
+  select(-DBP_c) %>% 
+  pivot_wider(names_from = mesure_time, values_from = SBP_c) %>% 
+  {suppressWarnings(sort_names(.))}
+large_diasto <- Systo_min %>% 
+  select(-SBP_c) %>% 
+  pivot_wider(names_from = mesure_time, values_from = DBP_c)  %>% 
+  {suppressWarnings(sort_names(.))}
+
+df_res_systo <- large_systo %>%
+  select(-UNID)  %>%
+  t %>%
+  as.data.frame %>%
+  fill(names(.), .direction = "downup") %>%
+  t %>%
+  as_tibble %>%      
+  rename_all(funs( c(colnames(large_systo[2:ncol(large_systo)])))) %>% 
+  mutate(UNID = large_systo$UNID) %>% 
+  {suppressWarnings(sort_names(.))}
+
+df_res_diasto <- large_diasto %>%
+  select(-UNID)  %>%
+  t %>%
+  as.data.frame %>%
+  fill(names(.), .direction ="downup") %>%
+  t %>%
+  as_tibble %>% 
+  rename_all(funs( c(colnames(large_diasto[2:ncol(large_diasto)])))) %>% 
+  mutate(UNID = large_diasto$UNID) %>% 
+  {suppressWarnings(sort_names(.))}
+
+return(list(systo = df_res_systo,diasto = df_res_diasto))
+}
+```
+
+
+```{r}
+grenoble <- grenoble %>% arrange(UnID)
+df_min_sys<-as.data.frame(longue_data_minutes(grr)[1])
+df_min_sys2<-df_min_sys[,-1]
+
+names(df_min_sys2)[128] #mesures à 22h début de la nuit
+names(df_min_sys2)[32] #mesures à 6h du matin, fin de la nuit
+df_sys_nuit<-df_min_sys2[,-1][,128:32] #DataFrame de la nuit
+df_sys_jour<-df_min_sys2[,-1][,33:127] #Dtaframe du jour
+```
+
+Courbes et moyenne Systoliques toutes les 10 minutes :
+
+```{r}
+mean_sys<-apply(df_min_sys2,2,mean)
+
+par(mfrow=c(2,2))
+plot(1:139,df_min_sys2[1,],ylim=c(50,250),type='l',main="mesures systoliques") #juste un aperçu
+for (i in 2:dim(df_min_sys)[1]){
+  lines(1:139,df_min_sys2[i,])
+}
+lines(1:139,mean_sys,col="red",lwd=3)
+
+plot(mean_sys,type='l',main="Moyenne des mesures systoliques",xlab="minutes",ylab="mesures systoliques")
+
+names_leger<-grenoble$UnID[which(grenoble[,"VAR45"]<=30)]
+
+#trouver les indexes
+
+index<-NULL
+m=1
+for (i in 1:length(names_leger)){ #pour les légers
+  index[m]=which(df_min_sys$systo.UNID==names_leger[i])
+  m=m+1
+}
+#plutôt après avoir réarrangé "grenoble":
+ind<-which(grenoble$VAR45<=30)
+
+mean_sys_leger<-apply(df_min_sys2[index,],2,mean)
+mean_sys_lourd<-apply(df_min_sys2[-index,],2,mean)
+plot(mean_sys_leger,type='l',main="moyenne sys. patients à apnée légère")
+plot(mean_sys_lourd,type='l',main="moyenne sys. patients à apnée sévère")
+
+```
+
+
+le premier patient:
+
+```{r}
+plot(1:139,df_min_sys2[1,],type='l',main="mesures du premier patient") 
+
+lines(1:139,mean_sys,col="red",lwd=3)
+
+install.packages("MESS")
+library(MESS)
+
+auc(1:139,mean_sys,subdivisions =139,type = "spline") #totale de l'AUC moyen
+
+############### AUC Premier patient ####################
+
+auc_pat1<-NULL
+for ( j in 1:139){
+auc_pat1[j]<-auc(1:139,df_min_sys2[1,],from=j,to=j+1,subdivisions =139,type = "spline") 
+}
+
+############### AUC MOYEN ###############
+
+auc_moy<-NULL
+for ( j in 1:139){
+auc_moy[j]<-auc(1:139,mean_sys,subdivisions =139,type = "spline",from=j,to=j+1)
+}
+
+
+```
+
+
+Calcul des aires sous la courbes par rapport à la moyenne : 
+
+```{r}
+aire<-function(numpat){ #numéro du patient sur le df df_min_sys2
+auc_pat<-NULL
+for ( j in 1:139){
+auc_pat[j]<-auc(1:139,df_min_sys2[numpat,],from=j,to=j+1,subdivisions =139,type = "spline") 
+
+}
+return (auc_pat-auc_moy)   
+}
+
+
+###### représentation graphique des premiers patients
+
+plot(aire(1),type='l',main="AUC par rapport à la moyenne",xlab="minutes /10",ylab="aires",ylim=c(-50,30),lwd=2)
+
+for (i in 2:3){
+  lines(aire(i),col=i,lwd=2)
+}
+abline(h=0)
+legend("bottomleft",paste("patient",1:3),lwd=2,col=1:3)
+
+###############################
+
+plot(aire(4),type='l',main="AUC par rapport à la moyenne",xlab="minutes /10",ylab="aires",ylim=c(-40,20),lwd=2,col=4)
+
+for ( i in 5:6){
+  lines(aire(i),col=i,lwd=2)
+}
+abline(h=0)
+legend("bottomleft",paste("patient",4:6),lwd=2,col=4:6)
+
+print(c("variance empirique de l'AUC du patient 1:",round(var(aire(1)),2)))
+print(c("variance empirique de l'AUC du patient 2:",round(var(aire(2)),2)))
+print(c("variance empirique de l'AUC du patient 3:",round(var(aire(3)),2)))
+print(c("variance empirique de l'AUC du patient 4:",round(var(aire(4)),2)))
+print(c("variance empirique de l'AUC du patient 5:",round(var(aire(5)),2)))
+print(c("variance empirique de l'AUC du patient 6:",round(var(aire(6)),2)))
+
+```
+
+AUC totale des patients en valeur absolue :
+```{r}
+auc_matrix=matrix(0,283,139) #matrice des vecteurs auc
+for (i in 1:283){
+  auc_matrix[i,]=aire(i)
+}
+
+auc_tot=apply(auc_matrix,1,abs)
+auc_tota=apply(auc_tot,2,sum) #auc totale en valeur absolue des aires
+
+mean(auc_tota) #moyenne des auc des patients 2028.41
+```
+
+
+
+Noms des patients avec une apnée légère : 
+
+```{r}
+
+names_leger<-grenoble$UnID[which(grenoble$VAR45<=30)]
+
+#trouver les indexes
+
+index<-NULL
+for (i in 1:length(names_leger)){
+  index[i]=which(df_min_sys$systo.UNID==names_leger[i])
+}
+
+#Plots des AUC de ces patients 
+
+plot(aire(index[1]),type='l',main="AUC pour patients à l'apnée légère",xlab="minutes /10",ylab="aires",ylim=c(-40,35),lwd=2,col=1)
+
+for ( i in c(3,45)){
+  lines(aire(index[i]),col=i,lwd=2)
+}
+abline(h=0)
+legend("bottomleft",paste("patient",index[c(1,3,45)]),lwd=2,col=c(1,3,45)) 
+#patient 94 a une pourtant une apnée très légère...
+
+plot(aire(index[2]),type='l',main="AUC pour patients à l'apnée légère",xlab="minutes /10",ylab="aires",ylim=c(-40,35),lwd=2,col=2)
+
+for ( i in c(4,5)){
+  lines(aire(index[i]),col=i,lwd=2)
+}
+abline(h=0)
+legend("bottomleft",paste("patient",index[c(2,4,5)]),lwd=2,col=c(2,4,5)) 
+
+#variances des aires 
+
+print(c("variance empirique de l'AUC du patient 282:",round(var(aire(282)),2)))
+print(c("variance empirique de l'AUC du patient 193:",round(var(aire(193)),2)))
+print(c("variance empirique de l'AUC du patient 94:",round(var(aire(94)),2)))
+print(c("variance empirique de l'AUC du patient 146:",round(var(aire(146)),2)))
+print(c("variance empirique de l'AUC du patient 201:",round(var(aire(201)),2)))
+print(c("variance empirique de l'AUC du patient 236:",round(var(aire(236)),2)))
+
+```
+
+PATIENTS AUX APNEES TRES LEGERES ET TRES SEVERES :
+
+```{r}
+variance=NULL #variance empirique des aires
+for (i in 1:283){
+variance[i]<-var(aire(i))
+}
+
+which(variance<65) #les patients avec petites variations
+ind_pat_leg<-which(grenoble$VAR45<15)
+ind_pat_lourd<-which(grenoble$VAR45>90)
+
+#PATIENTS à apnée légère :
+plot(aire(20),type='l',main="AUC patients à apnée légère",xlab="minutes /10",ylab="aires",lwd=1,col=1,ylim=c(-40,45))
+colo<-1:length(ind_pat_leg)
+c=1
+for ( i in ind_pat_leg[-1]){
+  lines(aire(i),col=colo[c],lwd=1)
+  c=c+1
+}
+abline(h=0)
+legend("topright",paste("patient",ind_pat_leg),lwd=2,col=colo)
+
+#apnée lourde :
+
+plot(aire(62),type='l',main="AUC patients à apnée sévère",xlab="minutes /10",ylab="aires",lwd=1,col=1,ylim=c(-40,45))
+colo<-1:length(ind_pat_lourd)
+c=1
+for ( i in ind_pat_lourd[-1]){
+  lines(aire(i),col=colo[c],lwd=1)
+  c=c+1
+}
+abline(h=0)
+legend("topright",paste("patient",ind_pat_lourd),lwd=2,col=colo)
+
+
+```
+
+
+```{r}
+prop_ap<-NULL
+for (i in 1:length(index)){
+prop_ap[i]=sum(which(variance<150)==index[i])
+}
+sum(prop_ap)/length(index) #proportion de correspondance de patients entre variations proches de la moyenne et apnée légère
+
+```
+
+#Modèles de prédiction
+
+##1° Méthode univariée  - régression logistique
+
+##différence jour/nuit
+
+```{r}
+mean_sys_jour<-apply(df_sys_jour,2,mean) #moyenne des mesures du jour
+
+plot(as.numeric(df_sys_jour[1,]),main="mesures systoliques",type='l') #juste un aperçu
+
+for (i in 2:dim(df_sys_jour)[1]){
+  lines(df_sys_jour[i,])
+}
+lines(mean_sys_jour,col="red",lwd=3)
+
+plot(mean_sys_jour,type='l',main="Moyenne des mesures systoliques",xlab="minutes",ylab="mesures systoliques")
+
+#trouver les indexes
+
+mean_sys_leger2<-apply(df_sys_jour[index,],2,mean)
+mean_sys_lourd2<-apply(df_sys_jour[-index,],2,mean)
+plot(mean_sys_leger2,type='l',main="moyenne sys. jour patients à apnée légère")
+plot(mean_sys_lourd2,type='l',main="moyenne sys.jour patients à apnée sévère")
+```
+
+
+```{r}
+############## AUC Moyenne #########
+
+auc_moy_jour<-NULL
+for ( j in 1:95){
+auc_moy_jour[j]<-auc(1:95,mean_sys_jour,subdivisions =95,type = "spline",from=j,to=j+1)
+}
+
+
+aire_jour<-function(numpat){ # Vecteurs des AUC par rapport à la moyenne
+auc_pat<-NULL
+for ( j in 1:95){
+auc_pat[j]<-auc(1:95,df_sys_jour[numpat,],from=j,to=j+1,subdivisions =95,type = "spline") 
+}
+return (auc_pat-auc_moy_jour)   
+}
+
+
+###### représentation graphique des premiers patients
+
+plot(aire_jour(1),type='l',main="AUC  par rapport à la moyenne jour",xlab="minutes /10",ylab="aires",ylim=c(-50,30),lwd=2)
+
+for (i in 2:3){
+  lines(aire_jour(i),col=i,lwd=2)
+}
+abline(h=0)
+legend("bottomleft",paste("patient",1:3),lwd=2,col=1:3)
+
+###############################
+
+plot(aire_jour(4),type='l',main="AUC par rapport à la moyenne",xlab="minutes /10",ylab="aires",ylim=c(-40,20),lwd=2,col=4)
+
+for ( i in 5:6){
+  lines(aire_jour(i),col=i,lwd=2)
+}
+abline(h=0)
+legend("bottomleft",paste("patient",4:6),lwd=2,col=4:6)
+
+```
+
+AUC totale des patients le jour :
+```{r}
+auc_matrix2=matrix(0,283,95 ) #matrice des vecteurs auc
+for (i in 1:283){
+  auc_matrix2[i,]=aire_jour(i)
+}
+
+auc_tota_jour=apply(abs(auc_matrix2),1,sum) #auc totale en valeur absolue des aires
+
+mean(auc_tota_jour) 
+```
+
+```{r}
+plot(aire_jour(4),type='l',main="AUC par rapport à la courbe moyenne - petite variance",xlab="minutes /10",ylab="aires",ylim=c(-40,30),lwd=2,col=4)
+
+for ( i in c(6,11)){
+  lines(aire_jour(i),col=i,lwd=2)
+}
+abline(h=0)
+legend("bottomleft",paste("patient",c(4,6,11)),lwd=2,col=c(4,6,11))
+
+######## PATIENTS A APNEE LEGERE JOUR #############
+
+plot(aire_jour(index[1]),type='l',main="AUC pour patients à l'apnée légère",xlab="minutes /10",ylab="aires",ylim=c(-40,35),lwd=2,col=1)
+
+for ( i in c(3,45)){
+  lines(aire_jour(index[i]),col=i,lwd=2)
+}
+abline(h=0)
+legend("bottomleft",paste("patient",index[c(1,3,45)]),lwd=2,col=c(1,3,45)) 
+#patient 94 a pourtant une apnée très légère...
+
+plot(aire_jour(index[2]),type='l',main="AUC pour patients à l'apnée légère",xlab="minutes /10",ylab="aires",lwd=2,col=2)
+
+for ( i in c(4,5)){
+  lines(aire_jour(index[i]),col=i,lwd=2)
+}
+abline(h=0)
+legend("bottomleft",paste("patient",index[c(2,4,5)]),lwd=2,col=c(2,4,5)) 
+
+```
+
+#MODELE DE PREDICTION
+
+##méthode univariée
+
+```{r}
+grenoble$Smoking_behavior__consumption_2<-grenoble$Smoking_behavior__consumption__
+grenoble$Smoking_behavior__consumption_2[which(grenoble$Smoking_behavior__consumption_2=='MD (but > 0)')]<-0.1
+grenoble$Smoking_behavior__consumption_2<-as.numeric(as.character(grenoble$Smoking_behavior__consumption_2))
+
+#Smoking Behavior New
+grenoble$smoking_behavior<-cut(grenoble$Smoking_behavior__consumption_2,breaks = c(-Inf,0,Inf),labels = c('no','yes'))
+
+
+#smoking degrees
+grenoble$Smoking_behavior__consumption_degree<-cut(grenoble$Smoking_behavior__consumption_2,breaks = c(-Inf,0,10,Inf),labels = c('non smoker','smoker less than or equal to 10 packs','smoker more than 10 packs'))
+
+
+#2eme facon##  
+# grenoble$smoking_behavior_degree_2<-(grenoble$Smoking_behavior__consumption_2==0)*1+(grenoble$Smoking_behavior__consumption_2>10)*3+(grenoble$Smoking_behavior__consumption_2<=10)*(grenoble$Smoking_behavior__consumption_2>0)*2
+
+
+
+```
+
+Régression logistique : 
+
+```{r}
+for (i in c(3,4,5,6,7,8,10,11,12)){
+  grenoble[,i]<-as.numeric(as.factor(grenoble[,i]))
+}
+
+VAR45_2<-as.numeric(grenoble$VAR45>30)
+
+  
+pval=NULL
+k=1
+for( i in names(grenoble)[2:16]){
+    m=glm(VAR45_2~grenoble[[i]],family = binomial(logit))
+  pval[k]=summary(m)$coef[2,4]
+  k=k+1
+}
+which(pval<=0.05) #2 et 12
+names(grenoble)[c(3,13)] #correspond aux poids et sexe du patient
+
+#### modèle avec seulement variable poids #####
+
+m_test=glm(VAR45_2~grenoble[["Weight__kg_"]],family = binomial(logit))
+m_weight=lm(grenoble$VAR45~grenoble$Weight__kg_) #regression linéaire
+m_pred=as.numeric(predict(m_test)>0.5)
+
+
+cm=confusionMatrix(VAR45_2,m_pred,cutoff=0.5)
+(cm[2,2]+cm[1,1])/283 #67% de bonnes prédictions
+
+############## autres modèles ##########
+
+m2=glm(VAR45_2~grenoble$VAR3+grenoble$Weight__kg_,family=binomial(logit)) #poids + sexe
+mpred2=as.numeric(predict(m2)>=0.5)
+cm2=confusionMatrix(VAR45_2,mpred2,cutoff=0.5)
+(cm2[2,2]+cm2[1,1])/283 #66% bonnes predictions
+
+#corrélations entre variables
+
+View(cor(grenoble[,1:16])) #trivial
+
+mod=glm(VAR45_2~variance,family = binomial(logit)) #pas significative
+mpred3=as.numeric(predict(mod)>=0.5)
+cm3=confusionMatrix(VAR45_2,mpred3,cutoff=0.5)
+(cm3[2,2]+cm3[1,1])/283 
+
+```
+
+Modèles jour
+
+```{r}
+summary(glm(VAR45_2~auc_tota_jour,family=binomial(logit))) #pas significative
+
+```
+
+Modèles nuit :
+
+```{r}
+mean_sys_nuit<-apply(df_sys_nuit,2,mean)
+
+auc_moy_nuit<-NULL
+for ( j in 1:97){
+auc_moy_nuit[j]<-auc(1:97,mean_sys_nuit,subdivisions =97,type = "spline",from=j,to=j+1)
+}
+
+aire_nuit<-function(numpat){ #aire nuit
+auc_pat<-NULL
+for ( j in 1:97){
+auc_pat[j]<-auc(1:97,df_sys_nuit[numpat,],from=j,to=j+1,subdivisions =97,type = "spline") 
+
+}
+return (auc_pat-auc_moy_nuit)   
+}
+
+auc_matrix_nuit=matrix(0,283,97) #matrice des vecteurs auc
+for (i in 1:283){
+  auc_matrix_nuit[i,]=aire_nuit(i)
+}
+
+
+auc_tota_nuit=apply(abs(auc_matrix_nuit),1,sum)
+
+
+########### modèle nuit ################
+
+summary(glm(VAR45_2~auc_tota_nuit,family = binomial(logit))) #pas significatif
+
+diff_jn=abs(auc_tota_jour-auc_tota_nuit)
+diff_jn
+
+
+```
+
+
+```{r}
+summary(glm(VAR45_2~variance,family = binomial(logit)))
+
+```
+

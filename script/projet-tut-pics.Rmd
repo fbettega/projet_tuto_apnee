@@ -1,0 +1,457 @@
+---
+title: "PROJET TUTORE - Variabilite + Apnee du sommeil"
+author: "Stefania Castellani"
+date: "13 février 2020"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library("tidyverse")
+library("lubridate")
+
+grenoble<-read.csv("data/Grenoble.csv")
+grenoble_raw<-read.csv("data/Grenoble_raw.csv")
+grenoble_raw$Time <- dmy_hms(as.character(grenoble_raw$Time)) #change la date en numeric
+grenoble_raw <- grenoble_raw  %>% filter(SBP != 0,DBP != 0) #enlève les mesures où SBP & DBP =0
+
+grr<-grenoble_raw
+
+sort_names <- function(data) {
+  name  <- names(data)
+  chars <- str_subset(name,"[:upper:]")
+  nums  <- name %>% 
+    as.numeric() %>% 
+    sort() %>% 
+    sprintf("`%s`", .)
+  
+  select_(data, .dots = c(chars, nums))
+}
+
+
+longue_data_minutes <- function(x){
+  df <- x
+
+df_over_24_hours <- df %>% group_by(UNID) %>% filter(Time < (min(Time) + days(1))) 
+
+Systo_min <- df_over_24_hours  %>% mutate(heure_mesure = hour(Time),minute_mesure = cut(minute(Time), breaks = seq(0,60,10), include.lowest = TRUE)) %>% group_by(UNID,heure_mesure,minute_mesure) %>% mutate(SBP_c = max(SBP),DBP_c = max(DBP)) %>% distinct(UNID,heure_mesure,minute_mesure,SBP_c,DBP_c) %>% ungroup() %>% mutate(mesure_time = heure_mesure +as.numeric(minute_mesure)/10 ) %>% select(-heure_mesure,-minute_mesure)
+
+
+large_systo <- Systo_min %>% 
+  select(-DBP_c) %>% pivot_wider(names_from = mesure_time, values_from = SBP_c) %>%  {suppressWarnings(sort_names(.))}
+
+large_diasto <- Systo_min %>% 
+  select(-SBP_c) %>% 
+  pivot_wider(names_from = mesure_time, values_from = DBP_c) %>% {suppressWarnings(sort_names(.))}
+
+df_res_systo <- large_systo %>%
+  select(-UNID)  %>%
+  t %>%
+  as.data.frame %>%
+  fill(names(.), .direction ="downup") %>%
+  t %>%
+  as_tibble %>%      
+  rename_all(funs( c(colnames(large_systo[2:ncol(large_systo)])))) %>% 
+  mutate(UNID = large_systo$UNID) %>% 
+  {suppressWarnings(sort_names(.))}
+
+df_res_diasto <- large_diasto %>%
+  select(-UNID)  %>%
+  t %>%
+  as.data.frame %>%
+  fill(names(.), .direction ="downup") %>%
+  t %>%
+  as_tibble %>% 
+  rename_all(funs( c(colnames(large_diasto[2:ncol(large_diasto)])))) %>% 
+  mutate(UNID = large_diasto$UNID) %>% 
+  {suppressWarnings(sort_names(.))}
+
+return(list(systo = df_res_systo,diasto = df_res_diasto))
+}
+```
+
+```{r}
+
+grenoble$Smoking_behavior__consumption_2<-grenoble$Smoking_behavior__consumption__
+grenoble$Smoking_behavior__consumption_2[which(grenoble$Smoking_behavior__consumption_2=='MD (but > 0)')]<-0.1
+grenoble$Smoking_behavior__consumption_2<-as.numeric(as.character(grenoble$Smoking_behavior__consumption_2))
+
+#Smoking Behavior New
+grenoble$smoking_behavior<-cut(grenoble$Smoking_behavior__consumption_2,breaks = c(-Inf,0,Inf),labels = c('no','yes'))
+
+#smoking degrees
+grenoble$smoking_behavior_degree<-cut(grenoble$Smoking_behavior__consumption_2,breaks = c(-Inf,0,10,Inf),labels = c('non smoker','smoker less than or equal to 10 packs','smoker more than 10 packs'))
+  
+#2eme facon##  
+grenoble$smoking_behavior_degree_2<-(grenoble$Smoking_behavior__consumption_2==0)*1+(grenoble$Smoking_behavior__consumption_2>10)*3+(grenoble$Smoking_behavior__consumption_2<=10)*(grenoble$Smoking_behavior__consumption_2>0)*2
+
+grenoble$smoking_behavior_degree_2<-factor(grenoble$smoking_behavior_degree,levels=1:3,labels=c('non smoker','smoker more than 10 packs','smoker less than or equal to 10 packs'))
+```
+
+```{r}
+grenoble <- grenoble %>% arrange(UnID)
+df_min_sys<-as.data.frame(longue_data_minutes(grr)[1])
+df_min_sys2<-df_min_sys[,-1]
+```
+
+Courbes et moyenne Systoliques toutes les 10 minutes :
+
+```{r}
+mean_sys<-apply(df_min_sys2,2,mean)
+
+plot(1:139,df_min_sys2[1,],ylim=c(50,250),type='l')
+for (i in 2:dim(df_min_sys)[1]){
+  lines(1:139,df_min_sys2[i,])
+}
+lines(1:139,mean_sys,col="red",lwd=3)
+
+plot(mean_sys,type='l',main="Moyenne des mesures systoliques sur 24 heures",xlab="minutes",ylab="mesures systoliques")
+
+```
+
+```{r}
+plot(1:139,df_min_sys2[1,],type='l') 
+lines(1:139,mean_sys,col="red",lwd=3)
+
+#install.packages("MESS")
+library(MESS)
+
+auc(1:139,mean_sys,subdivisions =139,type = "spline") #totale de l'AUC moyen
+
+############### AUC Premier patient ####################
+
+auc_pat1<-NULL
+k=1
+for ( j in 1:139){
+auc_pat1[k]<-auc(1:139,df_min_sys2[1,],from=j,to=j+1,subdivisions =139,type = "spline") 
+k=k+1
+}
+
+############### AUC MOYEN ###############
+
+auc_moy<-NULL
+l=1
+for ( j in 1:139){
+auc_moy[l]<-auc(1:139,mean_sys,subdivisions =139,type = "spline",from=j,to=j+1)
+l=l+1
+}
+
+```
+
+```{r}
+aire<-function(numpat){
+auc_pat<-NULL
+k=1
+for ( j in 1:139){
+auc_pat[k]<-auc(1:139,df_min_sys2[numpat,],from=j,to=j+1,subdivisions =139,type = "spline") 
+k=k+1
+}
+return (auc_pat-auc_moy)   
+}
+
+###### représentation graphique des premiers patients
+
+plot(aire(1),type='l',main="AUC par rapport à la courbe moyenne",xlab="minutes /10",ylab="aires",ylim=c(-40,30),lwd=2)
+
+for ( i in 1:3){
+  lines(aire(i),col=i,lwd=2)
+}
+abline(h=0)
+legend("bottomleft",paste("patient",1:3),lwd=2,col=1:3)
+var(aire(1))
+var(aire(2))
+var(aire(3))
+```
+
+```{r}
+
+auc_matrix=matrix(0,283,139) #matrice des vecteurs auc
+for (i in 1:283){
+  auc_matrix[i,]=aire(i)
+}
+
+auc_tot=apply(auc_matrix,1,abs)
+auc_tota=apply(auc_tot,2,sum)
+
+```
+
+```{r}
+#install.packages("pracma")
+library(pracma)
+
+# findpicks returns a matrix where each row represents one peak found
+# - first column gives the height
+# - second the position/index where the maximum is reached
+# - third and forth the indices of where the peak begins and ends — in the sense of where the pattern starts and ends
+```
+
+```{r}
+# pics de SP pour le patient
+#
+peaks_patient_plot <- function(numPat){
+  pPat<-as.numeric(df_min_sys2[numPat,])
+  plot(pPat,type="l",col="navy")
+  peaks_pPat<-findpeaks(pPat,nups=1,ndowns=0,npeaks=300,threshold=-100)
+  points(peaks_pPat[,2],peaks_pPat[,1],pch=20,col="maroon",xlim=100)
+  return(peaks_pPat)
+}
+
+peaks_patient <- function(numPat){
+  pPat<-as.numeric(df_min_sys2[numPat,])
+  peaks_pPat<-findpeaks(pPat,nups=1,ndowns=0,npeaks=300,threshold=-100)
+  return(peaks_pPat)
+}
+```
+
+```{r}
+num_patients<-283
+pics_Patients<-numeric(num_patients)
+ampli_pics_Patients<-numeric(num_patients)
+
+peaks_ampli <- function(peaks,numPat){
+  #cat("peak values: ",peaks[,1],"\n")
+  #cat("peak indexes: ",peaks[,2],"\n")
+  #cat("peak begin indexes: ",peaks[,3],"\n")
+  i<-1
+  ampli_pics_Patient<-0
+  for (p in peaks[,1]){
+    max_pic<-p
+    min_pic<-df_min_sys2[numPat,peaks[i,3]]
+    ampli_pics_Patient<-ampli_pics_Patient + (max_pic - min_pic)
+    i<-i+1
+  }
+  return(ampli_pics_Patient/(i-1))
+}
+
+for (i in 1:num_patients){
+  # infos sur pics du patient i
+  peaks_p_i<-peaks_patient(i)
+  # nombre pics du patient i
+  pics_Patients[i]<-length(peaks_p_i[,2])
+  # amplitude des pics
+  ampli_pics_Patients[i]<-peaks_ampli(peaks_p_i,i)
+}
+
+```
+
+```{r}
+library(ModelMetrics)
+
+VAR45_2<-as.numeric(grenoble$VAR45>30)
+VARSmokingCurrent<-grenoble$Smoking_behavior___current_smoki
+  
+#### modèle avec seulement variable pics #####
+#mym<-glm(VAR45_2~pics_Patients+ampli_pics_Patients+auc_tota,family = binomial(logit))
+#mym<-lm(VAR45_2~pics_Patients+ampli_pics_Patients+auc_tota)
+
+#mym<-lm(VAR45_2~pics_Patients+ampli_pics_Patients+VARSmokingCurrent+grenoble$VAR3+grenoble$Weight__kg_)
+mym<-lm(VAR45_2~ampli_pics_Patients+grenoble$VAR3+grenoble$VAR15)
+summary(mym)
+mym_pred=as.numeric(predict(mym)>0.5)
+cm=confusionMatrix(VAR45_2,mym_pred,cutoff=0.51)
+(cm[2,2]+cm[1,1])/283 #69% de bonnes prédictions
+
+```
+```{r}
+#### modèle avec les variables poids et sexe #####
+#mym2=glm(VAR45_2~grenoble$VAR3+grenoble$Weight__kg_,family=binomial(logit))
+mym2=lm(VAR45_2~grenoble$VAR3+grenoble$Weight__kg_)
+summary(mym2)
+mpred2=as.numeric(predict(mym2)>=0.5)
+cm2=confusionMatrix(VAR45_2,mpred2,cutoff=0.5)
+(cm2[2,2]+cm2[1,1])/283 #66% bonnes predictions
+```
+
+
+```{r}
+#### modèle avec les variables poids, sexe et pics_Patients #####
+# essaye' avec la taille, pas utile
+#
+#mym3=glm(VAR45_2~grenoble$VAR3+grenoble$Weight__kg_+pics_Patients+ampli_pics_Patients,family=binomial(logit))
+mym3=lm(VAR45_2~grenoble$VAR3+grenoble$Weight__kg_+pics_Patients+ampli_pics_Patients)
+summary(mym3)
+mpred3=as.numeric(predict(mym3)>=0.5)
+cm3=confusionMatrix(VAR45_2,mpred3,cutoff=0.5)
+(cm3[2,2]+cm3[1,1])/283
+
+```
+
+
+```{r}
+#cat("ampli picks: ",peaks_p1[,1]-90,"\n")
+#cat("index picks: ",(peaks_p1[,2]))
+#ampli_peaks_p1<-peaks_p1[,1]
+#ampli_p1<-as.numeric(df_min_sys2[1,]-min(p1))
+#plot(ampli_p1, type="l", col="magenta")
+```
+
+```{r}
+
+# nuit = premieres 31 (5 manquantes) + dernieres 12
+# jour = le reste
+#
+df_min_sys2_nuit<-cbind(df_min_sys2[128:139],df_min_sys2[1:31])
+df_min_sys2_jour<-df_min_sys2[,32:127]
+
+pics_Patients_nuit<-numeric(num_patients)
+ampli_pics_Patients_nuit<-numeric(num_patients)
+
+peaks_patient_nuit <- function(numPat){
+  pPat<-as.numeric(df_min_sys2_nuit[numPat,])
+  peaks_pPat<-findpeaks(pPat,nups=1,ndowns=0,npeaks=300,threshold=-100)
+  return(peaks_pPat)
+}
+
+for (i in 1:num_patients){
+  # infos sur les pics de nuit du patient i
+  peaks_p_i_nuit<-peaks_patient_nuit(i)
+  # nombre pics de nuit du patient i
+  pics_Patients_nuit[i]<-length(peaks_p_i_nuit[,2])
+  # amplitude des pics de nuit
+  ampli_pics_Patients_nuit[i]<-peaks_ampli(peaks_p_i_nuit,i)
+}
+
+
+pics_Patients_jour<-numeric(num_patients)
+ampli_pics_Patients_jour<-numeric(num_patients)
+
+peaks_patient_jour <- function(numPat){
+  pPat<-as.numeric(df_min_sys2_jour[numPat,])
+  peaks_pPat<-findpeaks(pPat,nups=1,ndowns=0,npeaks=300,threshold=-100)
+  return(peaks_pPat)
+}
+
+for (i in 1:num_patients){
+  # infos sur les pics de jour du patient i
+  peaks_p_i_jour<-peaks_patient(i)
+  # nombre pics de jour du patient i
+  pics_Patients_jour[i]<-length(peaks_p_i_jour[,2])
+  # amplitude des pics de jour 
+  ampli_pics_Patients_jour[i]<-peaks_ampli(peaks_p_i_jour,i)
+}
+
+```
+
+```{r}
+
+mym_n<-lm(VAR45_2~ampli_pics_Patients_nuit+grenoble$VAR3+grenoble$VAR15)
+summary(mym_n)
+mym_n_pred=as.numeric(predict(mym_n)>0.5)
+cm=confusionMatrix(VAR45_2,mym_n_pred,cutoff=0.51)
+(cm[2,2]+cm[1,1])/283 #68.55% de bonnes prédictions
+
+```
+
+```{r}
+
+mym_j<-lm(VAR45_2~ampli_pics_Patients_jour+grenoble$VAR3+grenoble$VAR15)
+summary(mym_j)
+mym_j_pred=as.numeric(predict(mym_j)>0.5)
+cm=confusionMatrix(VAR45_2,mym_j_pred,cutoff=0.51)
+(cm[2,2]+cm[1,1])/283
+
+```
+```{r}
+wilcox.test(ampli_pics_Patients~VAR45_2)
+wilcox.test(ampli_pics_Patients_nuit~VAR45_2)
+wilcox.test(ampli_pics_Patients_jour~VAR45_2)
+wilcox.test(pics_Patients~VAR45_2)
+
+
+# pics de l'aire 1
+#
+#a1<-aire(1)
+#plot(a1, type="l", col="navy")
+#peaks_a1 <- findpeaks(a1, npeaks=300, threshold=-100, sortstr=TRUE)
+#points(peaks_a1[,2], peaks_a1[,1], pch=20, col="maroon")
+```
+
+```{r}
+#hypertension_dur<-grenoble$Arterial_hypertension_duration_r
+#hypertension_dur[which(hypertension_dur=='MD')]<-0
+#hypertension_dur[which(hypertension_dur=='no history of HT reported')]<-0.1
+#t.test(as.numeric(hypertension_dur)~VAR45_2)
+#grenoble$Smoking_behavior__consumption_2<-as.numeric(as.character(grenoble$Smoking_behavior__consumption_2))
+
+grenoble$Arterial_hypertension_duration_r2<-grenoble$Arterial_hypertension_duration_r
+grenoble$Arterial_hypertension_duration_r2[!grenoble$Arterial_hypertension_duration_r2 %in% c('no history of HT reported','MD')] %>% as.character() %>% as.numeric()
+ 
+grenoble$apnea_degree<-NULL
+
+grenoble$apnea_degree<-cut(grenoble$VAR45,breaks = c(-Inf,30,Inf),labels = c('Legere','Severe'),right=TRUE)
+
+tmp = grenoble %>% 
+  filter(!Arterial_hypertension_duration_r2 %in% c('no history of HT reported','MD')) %>% 
+  mutate(Arterial_hypertension_duration_r2 = as.numeric(as.character(Arterial_hypertension_duration_r2)))
+
+t.test(tmp$Arterial_hypertension_duration_r2[tmp$apnea_degree == 'Severe'],
+       tmp$Arterial_hypertension_duration_r2[tmp$apnea_degree != 'Severe'])
+```
+
+```{r}
+#patient 94 avec apnee tres legere
+#
+peaks_patient_plot(94)
+```
+```{r}
+
+mym_s1<-glm(VAR45_2~pics_Patients,family = binomial(logit))
+summary(mym_s1)
+mym_s1_pred=as.numeric(predict(mym_s1)>0.5)
+cm=confusionMatrix(VAR45_2,mym_s1_pred,cutoff=0.5)
+(cm[2,2]+cm[1,1])/283
+
+```
+
+
+```{r}
+
+mym_s2<-glm(VAR45_2~ampli_pics_Patients,family = binomial(logit))
+summary(mym_s2)
+mym_s2_pred=as.numeric(predict(mym_s2)>0.5)
+cm=confusionMatrix(VAR45_2,mym_s2_pred,cutoff=0.5)
+(cm[2,2]+cm[1,1])/283
+
+```
+
+```{r}
+
+mym_s3<-glm(VAR45_2~auc_tota,family = binomial(logit))
+summary(mym_s3)
+mym_s3_pred=as.numeric(predict(mym_s3)>0.5)
+cm=confusionMatrix(VAR45_2,mym_s3_pred,cutoff=0.5)
+(cm[2,2]+cm[1,1])/283
+
+```
+
+```{r}
+
+mym_s11<-lm(VAR45_2~pics_Patients)
+summary(mym_s11)
+mym_s11_pred=as.numeric(predict(mym_s11)>0.5)
+cm=confusionMatrix(VAR45_2,mym_s11_pred,cutoff=0.5)
+(cm[2,2]+cm[1,1])/283
+
+```
+```{r}
+
+mym_s22<-lm(VAR45_2~ampli_pics_Patients)
+summary(mym_s22)
+mym_s22_pred=as.numeric(predict(mym_s22)>0.5)
+cm=confusionMatrix(VAR45_2,mym_s22_pred,cutoff=0.5)
+(cm[2,2]+cm[1,1])/283
+
+```
+```{r}
+
+mym_s33<-glm(VAR45_2~auc_tota,family = binomial(logit))
+summary(mym_s33)
+mym_s33_pred=as.numeric(predict(mym_s33)>0.5)
+cm=confusionMatrix(VAR45_2,mym_s33_pred,cutoff=0.5)
+(cm[2,2]+cm[1,1])/283
+
+
+```
+
+

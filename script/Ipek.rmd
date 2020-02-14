@@ -1,0 +1,260 @@
+---
+title: "PROJET TUTORE - APNEE DU SOMMEIL"
+author: "Margaux Leroy"
+date: "2 février 2020"
+output: html_document
+---
+
+
+
+```{r}
+
+
+
+# 
+# library("lubridate")
+# 
+# 
+# #remove.packages("dbplyr")
+# #remove.packages("rlang")
+
+
+install.packages("tidyverse")
+install.packages("lubridate")
+library(dplyr)
+
+require(tidyverse)
+require(lubridate)
+```
+
+```{r,echo=FALSE}
+grenoble<-read.csv("C:/Users/hakik/Documents/Documents/M2 SSD/Projet_Tutore/Data/Grenoble.csv", sep=",",dec=".",header=TRUE)
+
+grenoble_raw<-read.csv("C:/Users/hakik/Documents/Documents/M2 SSD/Projet_Tutore/Data/Grenoble_raw.csv", sep=",",dec=".",header=TRUE)
+
+grenoble_raw$Time <- dmy_hms(as.character(grenoble_raw$Time)) #change la date en numeric
+grenoble_raw <- grenoble_raw  %>% filter(SBP != 0,DBP != 0) #enlève les mesures où SBP & DPB =0
+```
+
+
+```{r,echo=FALSE}
+#division des levels of apnea
+
+grenoble$apnea_degree<-NULL
+
+grenoble$apnea_degree<-cut(grenoble$VAR45,breaks = c(-Inf,30,Inf),labels = c('Legere','Severe'),right=TRUE)
+
+
+####Smoking Behavior New
+
+grenoble$Smoking_behavior__consumption_2<-grenoble$Smoking_behavior__consumption__
+grenoble$Smoking_behavior__consumption_2[which(grenoble$Smoking_behavior__consumption_2=='MD (but > 0)')]<-0.1
+grenoble$Smoking_behavior__consumption_2<-as.numeric(as.character(grenoble$Smoking_behavior__consumption_2))
+
+grenoble$smoking_behavior<-cut(grenoble$Smoking_behavior__consumption_2,breaks = c(-Inf,0,Inf),labels = c('no','yes'))
+
+
+###smoking degrees
+
+grenoble$Smoking_behavior__consumption__<-as.numeric(as.character(grenoble$Smoking_behavior__consumption__))
+grenoble$smoking_behavior_degree<-cut(grenoble$Smoking_behavior__consumption__,breaks = c(-Inf,0,10,Inf),labels = c('non smoker','smoker less than or equal to 10 packs','smoker more than 10 packs'))
+  
+#2eme facon##  
+# grenoble$smoking_behavior_degree__<-(grenoble$Smoking_behavior__consumption__==0)*1+(grenoble$Smoking_behavior__consumption__>10)*3+(grenoble$Smoking_behavior__consumption__<=10)*(grenoble$Smoking_behavior__consumption__>0)*2
+# 
+# grenoble$smoking_behavior_degree_2<-factor(grenoble$smoking_behavior_degree,levels=1:3,labels=c('non smoker','smoker more than 10 packs','smoker less than or equal to 10 packs'))
+
+
+####Details_of___history_of_hyperten
+
+
+grenoble$D_history_hyperten<-NULL
+
+grenoble$D_history_hyperten<-as.numeric(as.factor(grenoble$Details_of___history_of_hyperten))
+
+
+```
+
+
+```{r,echo=FALSE}
+
+attributes(grenoble$Details_of___history_of_hyperten)
+
+#history of HT reported
+grenoble$hist_HT_reported_yn<-grenoble$D_history_hyperten==1 | grenoble$D_history_hyperten==2 |grenoble$D_history_hyperten==3|grenoble$D_history_hyperten==4
+
+
+#yes/no office HT
+grenoble$hist_HT_office_yn<-grenoble$D_history_hyperten==3 | grenoble$D_history_hyperten==4 |grenoble$D_history_hyperten==7|grenoble$D_history_hyperten==8
+
+#treatment 
+grenoble$hist_HT_treatment_yn<-grenoble$D_history_hyperten==2 | grenoble$D_history_hyperten==4 |grenoble$D_history_hyperten==6|grenoble$D_history_hyperten==8
+
+
+#####Arterial_hypertension_duration_r######
+
+#summary(grenoble$Arterial_hypertension_duration_r)
+
+grenoble$Arterial_hypertension_duration_r2<-grenoble$Arterial_hypertension_duration_r
+
+#grenoble$Arterial_hypertension_duration_r[which(grenoble$Arterial_hypertension_duration_r!='no history of HT reported')]
+
+# grenoble$Arterial_hypertension_duration_r3<-grenoble$Arterial_hypertension_duration_r[which(grenoble$Arterial_hypertension_duration_r!='no history of HT reported')] 
+  
+grenoble$Arterial_hypertension_duration_r2[!grenoble$Arterial_hypertension_duration_r2 %in% c('no history of HT reported','MD')] %>% as.character() %>% as.numeric()
+
+# grenoble$Arterial_hypertension_duration_r2[which(grenoble$Arterial_hypertension_duration_r2=='MD')]<-0
+# 
+# grenoble$Arterial_hypertension_duration_r2[which(grenoble$Arterial_hypertension_duration_r2=='no history of HT reported')]<-0.1 #on a remplace les no history avec NA pour obtenir des valeurs numeric
+# 
+# grenoble$Arterial_hypertension_duration_r2<-as.numeric(as.character(grenoble$Arterial_hypertension_duration_r2))
+
+#####Abdomen_circumference__cm####
+grenoble$Abdomen_circumference__cm_2<-as.numeric(as.character(grenoble$Abdomen_circumference__cm_))
+
+```
+
+
+```{r,echo=FALSE}
+# attributes(grenoble)
+# 
+# #Numerique
+# summary(grenoble$Age__years)
+# summary(grenoble$Arterial_hypertension_duration_r2)
+# summary(grenoble$Weight__kg_)
+# summary(grenoble$Height__cm_)
+# summary(grenoble$VAR15)
+# summary(grenoble$Abdomen_circumference__cm_2)
+
+require(plyr)
+
+library(dplyr)
+
+grenoble %>% 
+  dplyr::group_by(apnea_degree) %>%
+  dplyr::summarise(Age=mean(Age__years_),Age_sd=sd(Age__years_), Weight=mean(Weight__kg_), Weight_sd=sd(Weight__kg_),Height=mean(Height__cm_),Height_sd=sd(Height__cm_), BMI = mean(VAR15), BMI_sd=sd(VAR15), AC = mean(Abdomen_circumference__cm_2,na.rm = TRUE), AC_sd=sd(Abdomen_circumference__cm_2,na.rm = TRUE))
+
+
+
+grenoble %>% 
+  filter(!Arterial_hypertension_duration_r2 %in% c('no history of HT reported','MD')) %>% 
+  mutate(Arterial_hypertension_duration_r2 = as.numeric(as.character(Arterial_hypertension_duration_r2))) %>% 
+  dplyr::group_by(apnea_degree) %>%
+  dplyr::summarise(Ar_H_d_mean=mean(Arterial_hypertension_duration_r2,na.rm = TRUE),Ar_H_d_sd=sd(Arterial_hypertension_duration_r2,na.rm = TRUE))
+```
+
+
+```{r,echo=FALSE}
+#Categorique
+summary(grenoble$VAR3)
+summary(grenoble$Presence_of_coronary_artery_dise)
+summary(grenoble$Presence_of_cerebrovascula_disea)
+summary(grenoble$VAR6)
+summary(grenoble$Presence_of_dyslipidemia__hyperc)
+summary(grenoble$smoking_behavior)
+summary(grenoble$smoking_behavior_degree)
+summary(grenoble$Presence_of_hypertension__yes_no)
+summary(grenoble$hist_HT_reported_yn)
+summary(grenoble$hist_HT_office_yn)
+summary(grenoble$hist_HT_treatment_yn)
+```
+
+
+```{r,echo=FALSE}
+table(grenoble$VAR3,grenoble$apnea_degree)
+round(prop.table(table(grenoble$VAR3,grenoble$apnea_degree),2), digits=3)*100
+
+
+table(grenoble$Presence_of_coronary_artery_dise,grenoble$apnea_degree)
+round(prop.table(table(grenoble$Presence_of_coronary_artery_dise,grenoble$apnea_degree),2), digits=3)*100
+
+table(grenoble$Presence_of_cerebrovascula_disea,grenoble$apnea_degree)
+round(prop.table(table(grenoble$Presence_of_cerebrovascula_disea,grenoble$apnea_degree),2), digits=3)*100
+
+table(grenoble$VAR6,grenoble$apnea_degree)
+round(prop.table(table(grenoble$VAR6,grenoble$apnea_degree),2), digits=3)*100
+
+table(grenoble$Presence_of_dyslipidemia__hyperc,grenoble$apnea_degree)
+round(prop.table(table(grenoble$Presence_of_dyslipidemia__hyperc,grenoble$apnea_degree),2), digits=3)*100
+
+table(grenoble$smoking_behavior,grenoble$apnea_degree)
+round(prop.table(table(grenoble$smoking_behavior,grenoble$apnea_degree),2), digits=3)*100
+
+table(grenoble$smoking_behavior_degree,grenoble$apnea_degree)
+round(prop.table(table(grenoble$smoking_behavior_degree,grenoble$apnea_degree),2), digits=3)*100
+
+table(grenoble$Presence_of_hypertension__yes_no,grenoble$apnea_degree)
+round(prop.table(table(grenoble$Presence_of_hypertension__yes_no,grenoble$apnea_degree),2), digits=3)*100
+
+table(grenoble$hist_HT_reported_yn,grenoble$apnea_degree)
+round(prop.table(table(grenoble$hist_HT_reported_yn,grenoble$apnea_degree),2), digits=3)*100
+
+table(grenoble$hist_HT_office_yn,grenoble$apnea_degree)
+round(prop.table(table(grenoble$hist_HT_office_yn,grenoble$apnea_degree),2), digits=3)*100
+
+table(grenoble$hist_HT_treatment_yn,grenoble$apnea_degree)
+round(prop.table(table(grenoble$hist_HT_treatment_yn,grenoble$apnea_degree),2), digits=3)*100
+```
+
+
+
+
+
+```{r,echo=FALSE}
+
+# shapiro.test(grenoble$Age__years)
+# shapiro.test(grenoble$Arterial_hypertension_duration_r2)
+# 
+# shapiro.test(grenoble$(filter(!Arterial_hypertension_duration_r2 %in% c('no history of HT reported','MD')) %>% 
+#   mutate(Arterial_hypertension_duration_r2 = as.numeric(as.character(Arterial_hypertension_duration_r2))) %>%))
+# 
+#   
+# shapiro.test(grenoble$Weight__kg_)
+# shapiro.test(grenoble$Height__cm_)
+# shapiro.test(grenoble$VAR15)
+# shapiro.test(grenoble$Abdomen_circumference__cm_2)
+```
+
+
+```{r,echo=FALSE}
+
+
+tmp = grenoble %>% 
+  filter(!Arterial_hypertension_duration_r2 %in% c('no history of HT reported','MD')) %>% 
+  mutate(Arterial_hypertension_duration_r2 = as.numeric(as.character(Arterial_hypertension_duration_r2)))
+
+t.test(tmp$Arterial_hypertension_duration_r2[tmp$apnea_degree == 'Severe'],
+       tmp$Arterial_hypertension_duration_r2[tmp$apnea_degree != 'Severe'])
+
+
+t.test(grenoble$Age__years~grenoble$apnea_degree)
+t.test(grenoble$Weight__kg_~grenoble$apnea_degree)
+t.test(grenoble$Height__cm_~grenoble$apnea_degree)
+t.test(grenoble$VAR15~grenoble$apnea_degree)
+t.test(grenoble$Abdomen_circumference__cm_2~grenoble$apnea_degree)
+
+
+
+```
+
+
+```{r,echo=FALSE}
+#deux variable qualitative
+
+fisher.test(grenoble$VAR3,grenoble$apnea_degree)
+fisher.test(grenoble$Presence_of_coronary_artery_dise,grenoble$apnea_degree)
+fisher.test(grenoble$Presence_of_cerebrovascula_disea,grenoble$apnea_degree)
+fisher.test(grenoble$VAR6,grenoble$apnea_degree)
+fisher.test(grenoble$Presence_of_dyslipidemia__hyperc,grenoble$apnea_degree)
+fisher.test(grenoble$smoking_behavior,grenoble$apnea_degree)
+fisher.test(grenoble$smoking_behavior_degree,grenoble$apnea_degree)
+fisher.test(grenoble$Presence_of_hypertension__yes_no,grenoble$apnea_degree)
+
+fisher.test(grenoble$hist_HT_reported_yn,grenoble$apnea_degree)
+fisher.test(grenoble$hist_HT_office_yn,grenoble$apnea_degree)
+fisher.test(grenoble$hist_HT_treatment_yn,grenoble$apnea_degree)
+
+
+
+```
+
