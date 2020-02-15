@@ -1,0 +1,329 @@
+---
+title: "FDA"
+author: "francois bettega"
+date: "14/01/2020"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set
+library("tidyverse")
+library("lubridate")
+
+
+lu <- function(x){return(length(unique(x)))}
+
+
+pre_tt_PA <- function(x){
+PA <- read.csv(x)  
+PA$Time <- dmy_hms(as.character(PA$Time))
+PA_without_zero <- PA  %>% filter(SBP != 0,DBP != 0) %>% mutate(MonDay=replace(MonDay, MonDay==-364, 1)) %>% mutate(MonDay=replace(MonDay, MonDay==-363, 2))
+
+return(PA_without_zero)
+}
+
+
+sort_names <- function(data) {
+  name  <- names(data)
+  chars <- str_subset(name,"[:upper:]")
+  nums  <- name %>% 
+    as.numeric() %>% 
+    sort() %>% 
+    sprintf("`%s`", .)
+  
+  select_(data, .dots = c(chars, nums))
+}
+
+imput_bancale_lf <- function(x){
+  tmp <- mean(x,na.rm = TRUE)
+  imp <- x
+  for (i in 1:length(x)) {
+    if(is.na(imp[i])){
+      imp[i] <- tmp
+    } else {
+      tmp <- imp[i]
+    }
+  }
+  
+  return(imp)
+}
+
+
+imput_bancale_curve <- function(x){
+  imp <- x
+  
+  ## Le deb
+  if(is.na(imp[1])){
+    tmp <- NA 
+    i <- 1
+    while (is.na(tmp)) {
+      tmp <- imp[i] 
+      i <-  i+1 
+    }
+    
+    for (j in 1:i) {
+      imp[j] <- tmp
+    }
+  }
+  
+  # La fin 
+
+  
+  if(is.na(imp[length(imp)])){
+      tmp <- NA 
+      i <- length(imp)
+    while (is.na(tmp)) {
+      tmp <- imp[i] 
+      i <-  i-1
+    }
+    
+    for (j in length(imp):i) {
+      imp[j] <- tmp
+    }
+  }
+  
+  
+  
+  #Le milieu 
+  i <- 1
+  j <- 1
+  tmp <- NA
+  
+  for (i in 1:length(imp)) {
+    if(is.na(imp[i])){
+      ib <- i-1
+      bb <- imp[i-1]
+      ih <- NA
+      bh <- NA
+      
+      index <- i
+      while(is.na(bh)){
+        index <- index +1
+        bh <- imp[index] 
+      }
+      ih <- index
+      imp[ib:ih] <- seq(bb,bh,length.out = (ih - ib)+1 )
+      # print(paste(ib,ih, '-' ,bb,bh ,'-', (ih - ib)+1 ))
+    } 
+  }
+  
+  return(round(imp,1))
+}
+
+
+longue_data_minutes <- function(x){
+  df <- pre_tt_PA(x)
+  df <- df %>% select(-Valid,-VISIT,-Event,-ERR,-HR)
+  df_over_24_hours <- df %>% 
+    group_by(UNID) %>% 
+    filter(Time < (min(Time) + days(1))) 
+
+  Systo_min <- df_over_24_hours  %>% 
+    mutate(heure_mesure = hour(Time),
+           minute_mesure = cut(minute(Time), 
+                               breaks = seq(0,60,10), 
+                               include.lowest = TRUE)) %>% 
+    group_by(UNID,heure_mesure,minute_mesure) %>% 
+    mutate(SBP_c = max(SBP),DBP_c = max(DBP)) %>% 
+    distinct(UNID,heure_mesure,minute_mesure,SBP_c,DBP_c) %>% 
+    ungroup() %>% 
+    mutate(mesure_time = heure_mesure + as.numeric(minute_mesure)/10 ) %>% 
+    select(-heure_mesure,-minute_mesure)
+
+  
+  Systo_min <- Systo_min %>% select(UNID,mesure_time, everything()) %>% arrange(UNID,mesure_time)
+  tmp <- data.frame(
+    UNID = rep(unique(Systo_min$UNID),rep(240,lu(Systo_min$UNID))),
+    mesure_time = rep(seq(0.1,24,by = 0.1),lu(Systo_min$UNID))
+  )
+  Systo_min <- left_join(tmp,Systo_min)
+  
+  large_systo <- Systo_min %>% 
+    select(-DBP_c) %>% 
+    pivot_wider(names_from = mesure_time, 
+                values_from = SBP_c) 
+  
+  large_diasto <- Systo_min %>% 
+    select(-SBP_c) %>% 
+    pivot_wider(names_from = mesure_time, 
+                values_from = DBP_c)     
+  
+
+  large_systo_imp <- large_systo
+  for (i in 1:nrow(large_systo_imp)) {
+      large_systo_imp[i,-1] <- large_systo_imp[i,-1] %>% as.numeric() %>% imput_bancale_curve()
+  }
+   
+    large_diasto_imp <- large_diasto
+  for (i in 1:nrow(large_diasto_imp)) {
+      large_diasto_imp[i,-1] <- large_diasto_imp[i,-1] %>% as.numeric() %>% imput_bancale_curve()
+  }
+   
+  
+  
+  return(list(systo = large_systo_imp,diasto = large_diasto_imp))
+}
+
+to_indice <- function(X) {
+  x <- seq_along(unique(X))
+  names(x) <- unique(X)
+  x[as.character(X)]
+}
+
+#large_systo <- longue_data_heures("data/Grenoble_raw.csv")
+
+
+blood_pressure <- longue_data_minutes("data/Grenoble_raw.csv")
+
+Systo <- blood_pressure$systo
+
+```
+
+# euclydienne 
+```{r}
+carac_indiv_all <- read.csv("data/Grenoble.csv",sep = ",",dec = ".",header = TRUE)
+carac <- carac_indiv_all %>% select(UnID,VAR45) %>% mutate(VAR45 = cut(VAR45, 
+                   breaks=c(-Inf, 30, Inf), 
+                   labels=c('Faible','Severe')))
+rm(carac_indiv_all)
+colnames(carac) <- c('UNID','apnee')
+Systo <- inner_join(carac,Systo) %>% arrange(UNID)
+```
+
+```{r}
+# train <- Systo %>% group_by(apnee) %>% sample_n(65) %>% as.data.frame()
+# test <- anti_join(Systo,train, by = ('UNID')) %>% as.data.frame()
+# 
+# dodo <- rbind(train,test)
+# mat_dist_euc <- dodo[,-(1:2)] %>% dist() %>% as.matrix()
+# 
+# pred <- dodo[,1:2]
+# pred$pred <- NA
+# 
+# k <- 5
+# 
+# for (i in 131:nrow(pred)) {
+#   tmp <- mat_dist_euc[1:130,i]
+#   imax <- c()
+#   for(j in 1:k){
+#     m <- which.max(tmp)
+#     imax <- c(imax,m)
+#     tmp[m] <- 0
+#   }
+#   
+#   knn <- pred$apnee[imax]
+#   tt <- table(knn)
+#   pr <- names(tt[which.max(tt)])
+#   pred$pred[i] <- pr  
+# }
+# 
+# tmp <-  pred[-1 * (1:130),]
+# sum(tmp$apnee == tmp$pred) / nrow(tmp)
+```
+
+
+```{r}
+set.seed(158)
+train <- Systo %>% group_by(apnee) %>% sample_n(65) %>% as.data.frame()
+test <- anti_join(Systo,train, by = ('UNID')) %>% as.data.frame()
+
+dodo <- rbind(train,test)
+
+library(dtw)
+library(proxy)
+
+suppressPackageStartupMessages(library(dtw))
+mat_dist_dtw <- proxy::dist(dodo[,-(1:2)], method = "dtw", 
+                           upper = TRUE, diag = TRUE)
+
+mat_dist_dtw <- mat_dist_dtw %>% as.matrix()
+pred <- dodo[,1:2]
+pred$pred <- NA
+
+k <- 5
+
+for (i in 131:nrow(pred)) {
+  tmp <- mat_dist_dtw[1:130,i]
+  imax <- c()
+  for(j in 1:k){
+    m <- which.max(tmp)
+    imax <- c(imax,m)
+    tmp[m] <- 0
+  }
+  
+  knn <- pred$apnee[imax]
+  tt <- table(knn)
+  pr <- names(tt[which.max(tt)])
+  pred$pred[i] <- pr  
+}
+
+tmp <-  pred[-1 * (1:130),]
+sum(tmp$apnee == tmp$pred) / nrow(tmp)
+```
+
+  
+
+```{r}
+rm(tmp,pred,mat_dist_dtw,mat_dist_euc,dodo,blood_pressure,carac,Grenoble)
+```
+
+
+
+
+
+# Filtre
+
+
+```{r}
+
+# Systo_lisser <- Systo
+# for (i in 1:nrow(Systo)) {
+#   ex <- Systo[i,-1:-2] %>% as.numeric()
+#   x <- 1:length(ex)
+#   lo <- loess(ex~x)
+#   # plot(x,ex)
+#   Systo_lisser[i,-1:-2] <- predict(lo)
+# }
+```
+
+
+
+```{r}
+# library(dtw)
+# library(proxy)
+# train <- Systo_lisser %>% group_by(apnee) %>% sample_n(65) %>% as.data.frame()
+# test <- anti_join(Systo_lisser,train, by = ('UNID')) %>% as.data.frame()
+# dodo <- rbind(train,test)
+# 
+# 
+# 
+# suppressPackageStartupMessages(library(dtw))
+# mat_dist_dtw <- proxy::dist(dodo[,-(1:2)], method = "dtw", 
+#                            upper = TRUE, diag = TRUE)
+# 
+# mat_dist_dtw <- mat_dist_dtw %>% as.matrix()
+# pred <- dodo[,1:2]
+# pred$pred <- NA
+# 
+# k <- 5
+# 
+# for (i in 131:nrow(pred)) {
+#   tmp <- mat_dist_dtw[1:130,i]
+#   imax <- c()
+#   for(j in 1:k){
+#     m <- which.max(tmp)
+#     imax <- c(imax,m)
+#     tmp[m] <- 0
+#   }
+#   
+#   knn <- pred$apnee[imax]
+#   tt <- table(knn)
+#   pr <- names(tt[which.max(tt)])
+#   pred$pred[i] <- pr  
+# }
+# 
+# tmp <-  pred[-1 * (1:130),]
+# sum(tmp$apnee == tmp$pred) / nrow(tmp)
+```
