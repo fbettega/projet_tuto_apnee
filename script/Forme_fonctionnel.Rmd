@@ -7,13 +7,12 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set
-
 library(fda.usc)
 library(cluster)
 library(factoextra)
-library(tidyverse)
 library(ROSE)
 source(file = "pre_tt.R")
+library(tidyverse)
 #df <- pre_tt_PA("data/Grenoble_raw.csv")
 
 to_indice <- function(X) {
@@ -23,7 +22,6 @@ to_indice <- function(X) {
 }
 
 #large_systo <- longue_data_heures("data/Grenoble_raw.csv")
-#conflict_prefer("lag", "dplyr")
 
 blood_pressure <- longue_data_minutes("data/Grenoble_raw.csv")
 
@@ -43,7 +41,7 @@ functional_data_heas_tail_deriv <- function(data){
 SVM_table <- pre_tt_PA("data/Grenoble_raw.csv")
 
 carac_indiv_all <- read.csv("data/Grenoble.csv",sep = ",",dec = ".",header = TRUE)
-carac <- carac_indiv_all %>% select(UnID,VAR45) %>% mutate(VAR45 = cut(VAR45, 
+carac <- carac_indiv_all %>% dplyr::select(UnID,VAR45) %>% mutate(VAR45 = cut(VAR45, 
                    breaks=c(-Inf,30,Inf), 
                    labels=c(0,1)))
 
@@ -52,7 +50,7 @@ var_mesure_pat <- Var_mesure %>% summarise(var_SBC = var(SBC))
 Var_table <- var_mesure_pat %>% inner_join(carac,by =c("UNID" = "UnID"))
 
 
-df_fonc  <- blood_pressure$systo  %>%  select(-UNID) %>% as.matrix()
+df_fonc  <- blood_pressure$systo  %>%  dplyr::select(-UNID) %>% as.matrix()
 reponse <- Var_table$VAR45
 ```
 
@@ -83,9 +81,10 @@ carac <- carac_indiv_all %>% select(UnID,VAR45) %>% mutate(VAR45 = cut(VAR45,
                    breaks=c(-Inf,30, Inf), 
                    labels=c("low","sever")))
 #Var_mesure <- SVM_table %>% group_by(UNID) %>% mutate(SBC = (SBP - min(SBP))/(max(SBP) - min(SBP))) 
-var_mesure_pat <- Var_mesure %>% summarise(var_SBC = var(SBP)) 
+var_mesure_pat <- SVM_table %>% group_by(UNID)  %>% summarise(var_SBC = var(SBP)) 
 Var_table <- var_mesure_pat %>% inner_join(carac,by =c("UNID" = "UnID"))
 
+a <- Var_table %>% group_by(VAR45) %>% summarise(moy = mean(var_SBC), var = sd(var_SBC)) 
 
 reponse <- Var_table$VAR45
 

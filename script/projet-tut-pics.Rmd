@@ -1,7 +1,7 @@
 ---
 title: "PROJET TUTORE - Variabilite + Apnee du sommeil"
 author: "Stefania Castellani"
-date: "13 février 2020"
+date: "19 février 2020"
 output:
   html_document:
     df_print: paged
@@ -191,7 +191,7 @@ library(pracma)
 #
 peaks_patient_plot <- function(numPat){
   pPat<-as.numeric(df_min_sys2[numPat,])
-  plot(pPat,type="l",col="navy")
+  plot(pPat,type="l",col="navy",xlab="temps",ylab="SP",main="Variations de la SP")
   peaks_pPat<-findpeaks(pPat,nups=1,ndowns=0,npeaks=300,threshold=-100)
   points(peaks_pPat[,2],peaks_pPat[,1],pch=20,col="maroon",xlim=100)
   return(peaks_pPat)
@@ -224,13 +224,26 @@ peaks_ampli <- function(peaks,numPat){
   return(ampli_pics_Patient/(i-1))
 }
 
+peaks_ampli_sum <- function(peaks,numPat){
+  i<-1
+  ampli_pics_Patient<-0
+  for (p in peaks[,1]){
+    max_pic<-p
+    min_pic<-df_min_sys2[numPat,peaks[i,3]]
+    ampli_pics_Patient<-ampli_pics_Patient + (max_pic - min_pic)
+    i<-i+1
+  }
+  return(ampli_pics_Patient)
+}
+
 for (i in 1:num_patients){
   # infos sur pics du patient i
   peaks_p_i<-peaks_patient(i)
   # nombre pics du patient i
   pics_Patients[i]<-length(peaks_p_i[,2])
   # amplitude des pics
-  ampli_pics_Patients[i]<-peaks_ampli(peaks_p_i,i)
+  #ampli_pics_Patients[i]<-peaks_ampli(peaks_p_i,i)
+  ampli_pics_Patients[i]<-peaks_ampli_sum(peaks_p_i,i)
 }
 
 ```
@@ -247,6 +260,7 @@ VARSmokingCurrent<-grenoble$Smoking_behavior___current_smoki
 
 #mym<-lm(VAR45_2~pics_Patients+ampli_pics_Patients+VARSmokingCurrent+grenoble$VAR3+grenoble$Weight__kg_)
 mym<-lm(VAR45_2~ampli_pics_Patients+grenoble$VAR3+grenoble$VAR15)
+#mym<-lm(VAR45_2~ampli_pics_Patients)
 summary(mym)
 mym_pred=as.numeric(predict(mym)>0.5)
 cm=confusionMatrix(VAR45_2,mym_pred,cutoff=0.51)
@@ -395,7 +409,21 @@ t.test(tmp$Arterial_hypertension_duration_r2[tmp$apnea_degree == 'Severe'],
 peaks_patient_plot(94)
 ```
 ```{r}
+#peaks_patient_plot(54)
+#peaks_patient_plot(74)
+#peaks_patient_plot(94)
+#peaks_patient_plot(134)
+#peaks_patient_plot(154)
+#peaks_patient_plot(164)
+#peaks_patient_plot(174)
+#peaks_patient_plot(204)
+peaks_patient_plot(283)
+peaks_patient_plot(20)
 
+```
+
+
+```{r}
 mym_s1<-glm(VAR45_2~pics_Patients,family = binomial(logit))
 summary(mym_s1)
 mym_s1_pred=as.numeric(predict(mym_s1)>0.5)
@@ -451,7 +479,205 @@ mym_s33_pred=as.numeric(predict(mym_s33)>0.5)
 cm=confusionMatrix(VAR45_2,mym_s33_pred,cutoff=0.5)
 (cm[2,2]+cm[1,1])/283
 
+```
+
+
+
+
+
+2) Definition des vrais pics
+
+```{r}
+
+# vrais pics de SP pour le patient
+#
+peaks_patient_plot2 <- function(numPat){
+  pPat<-as.numeric(df_min_sys2[numPat,])
+  plot(pPat,type="l",col="navy",xlab="temps",ylab="SP",main="Variations de la SP")
+  peaks_pPat2<-findpeaks(pPat,nups=1,ndowns=1,npeaks=300,threshold=-100)
+  points(peaks_pPat2[,2],peaks_pPat2[,1],pch=20,col="maroon",xlim=100)
+  return(peaks_pPat2)
+}
+
+peaks_patient2 <- function(numPat){
+  pPat<-as.numeric(df_min_sys2[numPat,])
+  peaks_pPat2<-findpeaks(pPat,nups=1,ndowns=1)
+  return(peaks_pPat2)
+}
 
 ```
 
+```{r}
+
+num_patients<-283
+pics_Patients2<-numeric(num_patients)
+ampli_pics_Patients2<-numeric(num_patients)
+
+peaks_ampli2 <- function(peaks,numPat){
+  i<-1
+  ampli_pics_Patient2<-0
+  for (p in peaks[,1]){
+    ampli_pics_Patient2<-ampli_pics_Patient2 + (p - df_min_sys2[numPat,peaks[i,3]])
+    i<-i+1
+  }
+  return(ampli_pics_Patient2/(i-1))
+}
+
+peaks_ampli2_sum <- function(peaks,numPat){
+  i<-1
+  ampli_pics_Patient2<-0
+  for (p in peaks[,1]){
+    ampli_pics_Patient2<-ampli_pics_Patient2 + (p - df_min_sys2[numPat,peaks[i,3]])
+    i<-i+1
+  }
+  return(ampli_pics_Patient2)
+}
+
+for (i in 1:num_patients){
+  # infos sur pics du patient i
+  peaks_p_i_2<-peaks_patient2(i)
+  # nombre pics du patient i
+  pics_Patients2[i]<-length(peaks_p_i_2[,2])
+  # amplitude des pics
+  #ampli_pics_Patients2[i]<-peaks_ampli2(peaks_p_i_2,i)
+  ampli_pics_Patients2[i]<-peaks_ampli2_sum(peaks_p_i_2,i)
+}
+
+```
+
+```{r}
+
+#peaks_patient_plot2(283)
+#peaks_patient_plot2(20)
+peaks_patient_plot(1)
+peaks_patient_plot2(1)
+
+```
+
+```{r}
+library(ModelMetrics)
+
+VAR45_2<-as.numeric(grenoble$VAR45>30)
+
+#### modèle avec seulement variables vrai pics #####
+#mym<-glm(VAR45_2~pics_Patients2+ampli_pics_Patients2,family = binomial(logit))
+#mym_v<-lm(VAR45_2~pics_Patients2)
+#mym_v<-lm(VAR45_2~ampli_pics_Patients2)
+mym_v<-lm(VAR45_2~pics_Patients2+ampli_pics_Patients2)
+summary(mym_v)
+mym_v_pred=as.numeric(predict(mym_v)>0.5)
+cm=confusionMatrix(VAR45_2,mym_v_pred,cutoff=0.5)
+(cm[2,2]+cm[1,1])/283
+
+
+```
+
+
+
+
+3) Definition des pics avec palliers collapses
+
+```{r}
+# vrais pics de SP pour le patient
+#
+peaks_patient_plot3 <- function(numPat){
+  pPat<-as.numeric(df_min_sys2[numPat,])
+  pPat_d<-rle(pPat)$values
+  plot(pPat_d,type="l",col="navy",xlab="minutes/10",ylab="SP",main="Variations de la SP")
+  peaks_pPat3<-findpeaks(pPat_d,nups=1,ndowns=1,npeaks=300,threshold=-100)
+  points(peaks_pPat3[,2],peaks_pPat3[,1],pch=20,col="maroon",xlim=100)
+  return(peaks_pPat3)
+}
+
+peaks_patient_plot3b <- function(numPat){
+  pPat<-as.numeric(df_min_sys2[numPat,])
+  plot(pPat,type="l",col="navy",xlab="minutes/10",ylab="SP",main="Variations de la SP")
+  peaks_pPat3<-findpeaks(pPat,peakpat="[+]{1,}[0]{0,}[-]{1,}")
+  points(peaks_pPat3[,2],peaks_pPat3[,1],pch=20,col="maroon",xlim=100)
+  return(peaks_pPat3)
+}
+
+peaks_patient_plot3c <- function(numPat){
+  pPat<-as.numeric(df_min_sys2[numPat,])
+  plot(pPat,type="l",col="navy",xlab="minutes/10",ylab="SP",main="Variations de la SP")
+}
+
+peaks_patient3 <- function(numPat){
+  pPat<-as.numeric(df_min_sys2[numPat,])
+  pPat_d<-rle(pPat)$values
+  peaks_pPat3<-findpeaks(pPat_d,nups=1,ndowns=1)
+  return(peaks_pPat3)
+}
+
+peaks_patient3b <- function(numPat){
+  pPat<-as.numeric(df_min_sys2[numPat,])
+  peaks_pPat3<-findpeaks(pPat,peakpat="[+]{1,}[0]{0,}[-]{1,}")
+  return(peaks_pPat3)
+}
+```
+```{r}
+peaks_patient_plot3(94)
+peaks_patient_plot3b(94)
+```
+
+```{r}
+peaks_patient_plot3c(20)
+peaks_patient_plot3c(94)
+peaks_patient_plot3c(200)
+```
+
+
+```{r}
+
+num_patients<-283
+pics_Patients3<-numeric(num_patients)
+ampli_pics_Patients3<-numeric(num_patients)
+
+peaks_ampli3 <- function(peaks,numPat){
+  i<-1
+  ampli_pics_Patient3<-0
+  pPat<-as.numeric(df_min_sys2[numPat,])
+  pPat_d<-rle(pPat)$values
+  for (p in peaks[,1]){
+    ampli_pics_Patient3<-ampli_pics_Patient3 + (p - pPat_d[peaks[i,3]])
+    i<-i+1
+  }
+  return(ampli_pics_Patient3)
+}
+
+for (i in 1:num_patients){
+  # infos sur pics du patient i
+  peaks_p_i_3<-peaks_patient3(i)
+  # nombre pics du patient i
+  pics_Patients3[i]<-length(peaks_p_i_3[,2])
+  # amplitude des pics
+  ampli_pics_Patients3[i]<-peaks_ampli3(peaks_p_i_3,i)
+}
+
+```
+
+```{r}
+library(ModelMetrics)
+
+VAR45_2<-as.numeric(grenoble$VAR45>30)
+
+#### modèle avec seulement variables vrai pics #####
+#mym_v3<-glm(VAR45_2~pics_Patients3+ampli_pics_Patients3,family = binomial(logit))
+#mym_v3<-lm(VAR45_2~pics_Patients3)
+#mym_v3<-lm(VAR45_2~ampli_pics_Patients3)
+#mym_v3<-lm(VAR45_2~pics_Patients3+ampli_pics_Patients3)
+mym_v3=lm(VAR45_2~grenoble$VAR3+grenoble$Weight__kg_+ampli_pics_Patients3)
+summary(mym_v3)
+mym_v_pred3=as.numeric(predict(mym_v3)>0.5)
+cm=confusionMatrix(VAR45_2,mym_v_pred3,cutoff=0.5)
+(cm[2,2]+cm[1,1])/283
+
+```
+
+
+```{r}
+peaks_patient_plot3(1)
+peaks_patient_plot3b(1)
+
+```
 
